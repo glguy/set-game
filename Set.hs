@@ -2,14 +2,13 @@
 {-# LANGUAGE NoMonomorphismRestriction #-}
 module Set where
 
-import Data.Monoid
-import Control.Monad
-import Data.List
-import System.Random
-import MonadLib
+import Control.Monad (forM_, liftM, unless)
+import Data.List (sort, tails, transpose)
+import System.Random (RandomGen, randomR, newStdGen)
+import MonadLib (runStateT, runId, StateM(..))
 import qualified System.Console.Terminfo as TI
-import System.Console.Editline.Readline
-import Data.Char
+import System.Console.Editline.Readline (readline)
+import Data.Char (isSpace)
   
 data Color = Red | Purple | Green
  deriving (Show, Eq)
@@ -48,6 +47,7 @@ allCards = [ Card color count shading symbol
            , symbol <- [Diamond, Squiggle, Oval]
            ]
 
+chooseThree :: [a] -> [(a,a,a)]
 chooseThree xs =
   [ (a,b,c) | (a:as) <- tails xs
             , (b:bs) <- tails as
@@ -77,6 +77,7 @@ getRandom b = do
   set g'
   return i
 
+main :: IO ()
 main = do
   term <- TI.setupTermFromEnv
   let ?term = term in game
@@ -133,6 +134,7 @@ checkSet a b c tableau deck = do
          else do putStrLn "Not a set!\n"
                  game' tableau deck
 
+checkNoSets :: (?term :: TI.Terminal) => [Card] -> [Card] -> IO ()
 checkNoSets tableau deck
   | sets == 0 && null deck = do
        putStrLn "Game over!"
@@ -157,7 +159,8 @@ checkNoSets tableau deck
 -- | Print a list of 'Card's in a grid with 1-based indexing
 printCards :: (?term :: TI.Terminal) => [Card] -> IO ()
 printCards cards = do
-  let indexes = zipWith (++) (replicate 9 " " ++ repeat "") (map show [1..])
+  let indexes = zipWith (++) (replicate 9 " " ++ repeat "")
+                             (map show [1 :: Int ..])
   let cardLines = map renderCard cards
   let indexFirstLine i = zipWith (++) (i : repeat "  ")
   let indexedCardLines = zipWith indexFirstLine indexes cardLines
@@ -265,6 +268,7 @@ select3 a b c xs = (x0,x1,x2,xs2)
 
 -- | 'prompt' wraps 'readline' with a 'Read' parser and repeats the prompt
 --   on a failed parse.
+prompt :: Read a => String -> IO (Maybe a)
 prompt p = parseLn ?=<< readline p
   where
   parseLn ln = case reads ln of
