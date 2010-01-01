@@ -2,13 +2,13 @@
 {-# LANGUAGE NoMonomorphismRestriction #-}
 module Set where
 
-import Control.Monad (forM_, liftM, unless)
-import Data.List (tails, transpose)
-import System.Random (RandomGen, randomR, newStdGen)
-import MonadLib (runStateT, runId, StateM(..))
-import qualified System.Console.Terminfo as TI
+import Control.Monad			(forM_, liftM, unless)
+import Data.Char			(isSpace)
+import Data.List			(tails, transpose)
+import MonadLib				(StateM(..), runId, runStateT)
 import System.Console.Editline.Readline (readline)
-import Data.Char (isSpace)
+import System.Random			(newStdGen, RandomGen, randomR)
+import qualified System.Console.Terminfo as TI
   
 data Color = Red | Purple | Green
  deriving (Show, Eq)
