@@ -1,13 +1,15 @@
 {-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
 module Set where
 
-import Control.Monad			(liftM, unless)
-import Data.Char			(isSpace)
-import Data.List			(tails, transpose)
-import MonadLib				(StateM(..), runId, runStateT)
+import Control.Monad                    (liftM, liftM4, unless)
+import Data.Char                        (isSpace)
+import Data.Function                    (on)
+import Data.List                        (tails, transpose)
+import MonadLib                         (StateM(..), runId, runStateT)
 import System.Console.Editline.Readline (readline)
-import System.Random			(newStdGen, RandomGen, randomR)
+import System.Random                    (newStdGen, RandomGen, randomR)
 import qualified System.Console.Terminfo as TI
   
 data Color = Red | Purple | Green
@@ -22,37 +24,34 @@ data Shading = Open | Striped | Solid
 data Symbol = Diamond | Squiggle | Oval
  deriving (Show, Eq)
 
-data Card = Card Color Count Shading Symbol
+data Card = Card { color :: Color
+                 , count :: Count
+                 , shading :: Shading
+                 , symbol :: Symbol
+                 }
  deriving (Show, Eq)
 
-valid :: Eq a => a -> a -> a -> Bool
-valid a b c
-  | a == b    = b == c
-  | otherwise = a /= c && b /= c
+valid :: Eq b => (a -> b) -> [(a,a)] -> Bool
+valid f xs = all equal xs || all unequal xs
+ where
+ equal   (a,b)  = on (==) f a b
+ unequal (a,b)  = on (/=) f a b
 
 validSet :: Card -> Card -> Card -> Bool
-validSet (Card color1 count1 shading1 symbol1)
-         (Card color2 count2 shading2 symbol2)
-         (Card color3 count3 shading3 symbol3)
-         =  valid color1   color2   color3
-         && valid count1   count2   count3
-         && valid shading1 shading2 shading3
-         && valid symbol1  symbol2  symbol3
+validSet card1 card2 card3
+  = valid color combos
+ && valid count combos
+ && valid shading combos
+ && valid symbol combos
+  where
+  combos = chooseTwo [card1, card2, card3] 
 
 allCards :: [Card]
-allCards = [ Card color count shading symbol
-               | color   <- [Red,     Purple,   Green]
-               , count   <- [One,     Two,      Three]
-               , shading <- [Open,    Striped,  Solid]
-               , symbol  <- [Diamond, Squiggle, Oval]
-               ]
+allCards = liftM4 Card [Red,     Purple,   Green]
+                       [One,     Two,      Three]
+                       [Open,    Striped,  Solid]
+                       [Diamond, Squiggle, Oval]
 
--- | 'chooseThree' returns all combinations of three elements.
-chooseThree :: [a] -> [(a,a,a)]
-chooseThree xs = [ (a,b,c) | (a:as) <- tails xs
-                           , (b:bs) <- tails as
-                           , c      <- bs
-                           ]
 
 -- | 'solveBoard' returns the list of all valid sets contained in the given
 --   list.
@@ -92,43 +91,44 @@ main = do
 tableauSize :: Int
 tableauSize = 12
 
+-- | 'tableauWidth' is the number of cards to be rendered in each row on the
+--   tableau.
+tableauWidth :: Int
+tableauWidth = 3
+
 -- | 'game' shuffles
 game :: (?term :: TI.Terminal) => IO ()
 game = game' [] =<< shuffleIO allCards
 
 game' :: (?term :: TI.Terminal) => [Card] -> [Card] -> IO ()
 game' tableau deck = do
-  (tableau, deck) <- deal tableau deck
+  (tableau', deck') <- deal tableau deck
 
   -- Display current tableau
-  putStrLn ("Cards remaining deck: " ++ show (length deck))
-  printCards tableau
+  putStrLn ("Cards remaining deck: " ++ show (length deck'))
+  putStr (renderTableau tableau')
 
   -- Handle user input
   sel <- prompt "Selection:"
   case sel of
-    Nothing     				-> return ()
-    Just (0,0,0)				-> checkNoSets tableau deck
-    Just (a,b,c) | not (validInput a b c)	-> checkSet a b c tableau deck
-                 | otherwise                    -> do putStrLn "Invalid input"
-                 				      game' tableau deck
-  where
-  n = length tableau
-
-  validInput a b c = a /= b && b /= c && a /= c && all inbounds [a,b,c]
-
-  inbounds x = x > 0 && x <= n
-
+    Nothing                     -> return ()
+    Just (0,0,0)                -> checkNoSets tableau' deck'
+    Just (a,b,c) | validInput   -> checkSet a b c tableau' deck'
+                 | otherwise    -> do putStrLn "Invalid input"
+                                      game' tableau' deck'
+                 where
+                 inputs = [a,b,c]
+                 n = length tableau'
+                 validInput = all (uncurry (/=)) (chooseTwo inputs)
+                           && all (bounded 1 n) inputs
 -- | 'deal' adds cards to the tableau from the deck up to a minimum of
 --   'tableauSize' cards.
 deal :: [Card] -> [Card] -> IO ([Card],[Card])
 deal tableau deck = do
-  let cardsNeeded       = tableauSize - length tableau
-      (dealt, deck')    = splitAt cardsNeeded deck
-      tableau'          = tableau ++ dealt
-  unless (null dealt) $
-    putStrLn ("Dealing " ++ show (length dealt) ++ " cards")
-  return (tableau', deck')
+  unless (null dealt) (putStrLn ("Dealing " ++ show (length dealt) ++ " cards"))
+  return (tableau ++ dealt, deck')
+ where
+  (dealt, deck')    = splitAt (tableauSize - length tableau) deck
 
 
 -- | 'checkSet' will extract the chosen set from the tableau and check it
@@ -142,7 +142,7 @@ checkSet :: (?term :: TI.Terminal)
          -> [Card] -- ^ Current deck
          -> IO ()
 checkSet a b c tableau deck = do
-  printCardRow [card0, card1, card2]
+  putStr $ renderCardRow [card0, card1, card2]
   putStrLn message
   game' nextTableau deck
   where
@@ -176,32 +176,35 @@ checkNoSets tableau deck
 -- Card drawing functions -----------------------------------------------------
 -------------------------------------------------------------------------------
 
--- | Print a list of 'Card's in a grid with 1-based indexing
-printCards :: (?term :: TI.Terminal) => [Card] -> IO ()
-printCards = mapM_ (putStrLn . unlines . map concat . transpose . map f)
-           . groups 3
-           . zip paddedIndexes
+-- | 'renderTableau' renders a list of 'Card's in a grid with 1-based indexing
+--   as a 'String' using the current 'Terminal'.
+renderTableau :: (?term :: TI.Terminal) => [Card] -> String
+renderTableau = unlines
+              . map concatGroup
+              . groups tableauWidth
+              . zipWith3 addIndex pads [1 :: Int ..]
+              . map renderCard
   where
-  paddedIndexes = zipWith (++) (replicate 9 " " ++ repeat "")
-                               (map show [1 :: Int ..])
+  pads = replicate 9 " " ++ repeat ""
+  addIndex pad index = zipWith (++) ((pad ++ show index) : repeat "  ")
 
-  f (index, card) = zipWith (++) (index : repeat "  ") (renderCard card)
+-- | 'renderCardRow' renders a list of 'Card's in a row without indexing.
+renderCardRow :: (?term :: TI.Terminal) => [Card] -> String
+renderCardRow = concatGroup . map padLines . map renderCard
+  where padLines = map ("  "++)
 
--- | Print a list of 'Card's in a row without indexing
-printCardRow :: (?term :: TI.Terminal) => [Card] -> IO ()
-printCardRow = putStr . unlines . map concatPad . transpose . map renderCard
-  where concatPad = concatMap ("  "++)
+concatGroup :: [[String]] -> String
+concatGroup = unlines . map concat . transpose
 
 -- | 'renderCard' renders a 'Card' to a list of lines with the appropriate art
 --   and coloring and duplication.
 renderCard :: (?term :: TI.Terminal) => Card -> [String]
-renderCard (Card color count shading symbol)
+renderCard Card {color, count, shading, symbol}
   = map (addColor color . duplicate count) (selectArt shading symbol)
 
 -- | 'duplicate' pads a 'String' to fit neatly, centered in a 14-character
 --   region.
-duplicate :: Count ->    (String -> String)
-
+duplicate :: Count -> String -> String
 duplicate One   x = "      " ++        x        ++ "      "
 duplicate Two   x = "   "    ++ x ++ "  " ++ x  ++    "   "
 duplicate Three x = " " ++ x ++ " " ++ x ++ " " ++ x ++ " "
@@ -281,13 +284,13 @@ select3 :: Int -> Int -> Int -> [a] -> (a,a,a,[a])
 select3 a b c xs = (x0,x1,x2,xs2)
   where
   (x0,xs0) = select a xs
-  (x1,xs1) = select (dec a b) xs0
-  (x2,xs2) = select (dec a (dec b c)) xs1
+  (x1,xs1) = select (dec a b b) xs0
+  (x2,xs2) = select (dec a c (dec b c c)) xs1
 
   -- | 'dec' is used to correct indexes that will be affected
   -- by previous selects.
-  dec x y | x < y     = y - 1
-          | otherwise = y
+  dec x y z | x < y     = z - 1
+            | otherwise = z
 
 -------------------------------------------------------------------------------
 -- Other utilities ------------------------------------------------------------
@@ -300,7 +303,8 @@ prompt p = parseLn ?=<< readline p
   where
   parseLn ln = case reads ln of
     [(x,white)] | all isSpace white -> return (Just x)
-    _ -> prompt p
+    _ -> do putStrLn "Bad input"
+            prompt p
 
 -- | '?=<<' is the monadic bind operator for MaybeT, except inlined to not
 --   require a newtype.
@@ -311,3 +315,20 @@ f ?=<< m = maybe (return Nothing) f =<< m
 --   function on a 3-tuple. 
 curry3 :: (a -> b -> c -> d) -> (a,b,c) -> d
 curry3 f (a,b,c) = f a b c
+
+-- | 'bounded' test that x is between lo and hi (inclusive).
+bounded :: Ord a => a -> a -> a -> Bool
+bounded lo hi x = lo <= x && x <= hi
+
+-- | 'chooseThree' returns all combinations of three elements.
+chooseTwo :: [a] -> [(a,a)]
+chooseTwo xs = [ (a,b) | (a:as) <- tails xs
+                       , b      <- as
+                       ]
+
+-- | 'chooseThree' returns all combinations of three elements.
+chooseThree :: [a] -> [(a,a,a)]
+chooseThree xs = [ (a,b,c) | (a:as) <- tails xs
+                           , (b:bs) <- tails as
+                           , c      <- bs
+                           ]
