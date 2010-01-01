@@ -3,7 +3,7 @@
 module Set where
 
 import Control.Monad (forM_, liftM, unless)
-import Data.List (sort, tails, transpose)
+import Data.List (tails, transpose)
 import System.Random (RandomGen, randomR, newStdGen)
 import MonadLib (runStateT, runId, StateM(..))
 import qualified System.Console.Terminfo as TI
@@ -41,24 +41,27 @@ validSet (Card color1 count1 shading1 symbol1)
 
 allCards :: [Card]
 allCards = [ Card color count shading symbol
-           | color <- [Red, Purple, Green]
-           , count <- [One, Two, Three]
-           , shading <- [Open, Striped, Solid]
-           , symbol <- [Diamond, Squiggle, Oval]
+           | color   <- [Red,     Purple,   Green]
+           , count   <- [One,     Two,      Three]
+           , shading <- [Open,    Striped,  Solid]
+           , symbol  <- [Diamond, Squiggle, Oval]
            ]
 
+-- | 'chooseThree' returns all combinations of three elements.
 chooseThree :: [a] -> [(a,a,a)]
-chooseThree xs =
-  [ (a,b,c) | (a:as) <- tails xs
-            , (b:bs) <- tails as
-            , c <- bs]
+chooseThree xs = [ (a,b,c) | (a:as) <- tails xs
+                           , (b:bs) <- tails as
+                           , c      <- bs
+                           ]
 
 solveBoard :: [Card] -> [(Card,Card,Card)]
 solveBoard = filter (curry3 validSet) . chooseThree
             
+-- | 'shuffleIO' calls shuffle using a generator from 'newStdGen'.
 shuffleIO :: [a] -> IO [a]
 shuffleIO xs = liftM (fst . shuffle xs) newStdGen
 
+-- | 'shuffle' shuffles the elements of a list using the given random generator.
 shuffle :: RandomGen g => [a] -> g -> ([a], g)
 shuffle xs g = runId (runStateT g (shuffle' (length xs) xs))
 
@@ -80,32 +83,51 @@ getRandom b = do
 main :: IO ()
 main = do
   term <- TI.setupTermFromEnv
-  let ?term = term in game
+  let ?term = term
+  game
 
+-- | 'tableauSize' is the minimum number of cards that should be on the tableau.
+tableauSize :: Int
+tableauSize = 12
+
+-- | 'game' shuffles
 game :: (?term :: TI.Terminal) => IO ()
-game = uncurry game' . splitAt 12 =<< shuffleIO allCards
+game = game' [] =<< shuffleIO allCards
 
-game' :: (?term :: TI.Terminal)
-      => [Card] -- ^ Current tableau
-      -> [Card] -- ^ Current deck
-      -> IO ()
+game' :: (?term :: TI.Terminal) => [Card] -> [Card] -> IO ()
 game' tableau deck = do
-  putStrLn ("Cards in deck: " ++ show (length deck))
+  (tableau, deck) <- deal tableau deck
+
+  -- Display current tableau
+  putStrLn ("Cards remaining deck: " ++ show (length deck))
   printCards tableau
   putStrLn ""
+
+  -- Handle user input
   sel <- prompt "Selection:"
   case sel of
-    Nothing      -> return ()
-    Just (0,0,0) -> checkNoSets tableau deck
-    Just (a,b,c)
-      | not (validInput a b c) -> do
-              putStrLn "Invalid input"
-              game' tableau deck
-      | otherwise -> checkSet a b c tableau deck
+    Nothing     				-> return ()
+    Just (0,0,0)				-> checkNoSets tableau deck
+    Just (a,b,c) | not (validInput a b c)	-> checkSet a b c tableau deck
+                 | otherwise                    -> do putStrLn "Invalid input"
+                 				      game' tableau deck
   where
   n = length tableau
+
   validInput a b c = a /= b && b /= c && a /= c && all inbounds [a,b,c]
+
   inbounds x = x > 0 && x <= n
+
+-- | 'deal' adds cards to the tableau from the deck up to a minimum of
+--   'tableauSize' cards.
+deal :: [Card] -> [Card] -> IO ([Card],[Card])
+deal tableau deck = do
+  let cardsNeeded       = tableauSize - length tableau
+      (dealt, deck')    = splitAt cardsNeeded deck
+      tableau'          = tableau ++ dealt
+  unless (null dealt) $
+    putStrLn ("Dealing " ++ show (length dealt) ++ " cards")
+  return (tableau', deck')
 
 
 -- | 'checkSet' will extract the chosen set from the tableau and check it
@@ -119,25 +141,22 @@ checkSet :: (?term :: TI.Terminal)
          -> [Card] -- ^ Current deck
          -> IO ()
 checkSet a b c tableau deck = do
-       let (card0, card1, card2, tableau') = select3 (a-1) (b-1) (c-1) tableau
-       printCardRow [card0, card1, card2]
+  printCardRow [card0, card1, card2]
+  putStrLn message
+  game' nextTableau deck
+  where
+  (card0, card1, card2, tableau') = select3 (a-1) (b-1) (c-1) tableau
 
-       if validSet card0 card1 card2
-         then do putStrLn "Good job\n"
-                 
-                 let cardsNeeded = max 0 (12 - length tableau')
-                 let (dealt, deck') = splitAt cardsNeeded deck
-                 unless (null dealt) $
-                   putStrLn ("Dealing " ++ show (length dealt) ++ " cards")
-                 game' (tableau' ++ dealt) deck'
-     
-         else do putStrLn "Not a set!\n"
-                 game' tableau deck
+  (message, nextTableau)
+    | validSet card0 card1 card2        = ("Good job\n", tableau')
+    | otherwise                         = ("Not a set!\n", tableau)
+
 
 checkNoSets :: (?term :: TI.Terminal) => [Card] -> [Card] -> IO ()
 checkNoSets tableau deck
   | sets == 0 && null deck = do
        putStrLn "Game over!"
+
   | sets == 0 = do
        putStrLn "Dealing three more cards"
        let (replacement, deck') = splitAt 3 deck
@@ -181,7 +200,8 @@ renderCard (Card color count shading symbol)
 
 -- | 'duplicate' pads a 'String' to fit neatly, centered in a 14-character
 --   region.
-duplicate :: Count -> String -> String
+duplicate :: Count ->    (String -> String)
+
 duplicate One   x = "      " ++ x ++ "      "
 duplicate Two   x = "   " ++ x ++ "  " ++ x ++ "   "
 duplicate Three x = " " ++ x ++ " " ++ x ++ " " ++ x ++ " "
@@ -257,10 +277,12 @@ select n (x:xs) = (y,x:ys)
 select3 :: Int -> Int -> Int -> [a] -> (a,a,a,[a])
 select3 a b c xs = (x0,x1,x2,xs2)
   where
-  (x0,xs0) = select a' xs
-  (x1,xs1) = select (b'-1) xs0
-  (x2,xs2) = select (c'-2) xs1
-  [a',b',c'] = sort [a,b,c]
+  (x0,xs0) = select a xs
+  (x1,xs1) = select (dec a b) xs0
+  (x2,xs2) = select (dec a (dec b c)) xs1
+
+  dec x y | x < y     = y - 1
+          | otherwise = y
 
 -------------------------------------------------------------------------------
 -- Other utilities ------------------------------------------------------------
