@@ -179,9 +179,9 @@ renderCard (Card color count shading symbol)
 -- | 'duplicate' pads a 'String' to fit neatly, centered in a 14-character
 --   region.
 duplicate :: Count -> String -> String
-duplicate One   x = "     " ++ x ++ "     "
-duplicate Two   x = "  " ++ x ++ "  " ++ x ++ "  "
-duplicate Three x = x ++ " " ++ x ++ " " ++ x
+duplicate One   x = "      " ++ x ++ "      "
+duplicate Two   x = "   " ++ x ++ "  " ++ x ++ "   "
+duplicate Three x = " " ++ x ++ " " ++ x ++ " " ++ x ++ " "
 
 addColor :: (?term :: TI.Terminal) => Color -> String -> String
 addColor color = f2 TI.Black . f1 termcolor
@@ -198,41 +198,41 @@ addColor color = f2 TI.Black . f1 termcolor
 --   a given 'Shading' and 'Symbol'.
 selectArt :: Shading -> Symbol -> [String]
 selectArt Open    Diamond  = ["    "
-                             ," /\\ "
-                             ,"/__\\"
-                             ,"    "]
+                             ," ╱╲ "
+                             ,"╱  ╲"
+                             ,"‾‾‾‾"]
 selectArt Striped Diamond  = ["    "
-                             ," /\\ "
-                             ,"//\\\\"
-                             ,"    "]
+                             ," ╱╲ "
+                             ,"╱╱╲╲"
+                             ,"‾‾‾‾"]
 selectArt Solid   Diamond  = ["    "
-                             ," /\\ "
-                             ,"/XX\\"
-                             ,"    "]
+                             ," ╱╲ "
+                             ,"╱╳╳╲"
+                             ,"‾‾‾‾"]
 selectArt Open    Squiggle = ["___ "
-                             ,"\\  \\"
-                             ,"/__/"
-                             ,"    "]
+                             ,"╲  ╲"
+                             ,"╱  ╱"
+                             ,"‾‾‾ "]
 selectArt Striped Squiggle = ["___ "
-                             ,"\\\\\\\\"
-                             ,"////"
-                             ,"    "]
+                             ,"╲╲╲╲"
+                             ,"╱╱╱╱"
+                             ,"‾‾‾ "]
 selectArt Solid   Squiggle = ["___ "
-                             ,"\\XX\\"
-                             ,"/XX/"
-                             ,"    "]
+                             ,"╲╳╳╲"
+                             ,"╱╳╳╱"
+                             ,"‾‾‾ "]
 selectArt Open    Oval     = [" __ "
-                             ,"/  \\"
-                             ,"\\__/"
-                             ,"    "]
+                             ,"╱  ╲"
+                             ,"╲  ╱"
+                             ," ‾‾ "]
 selectArt Striped Oval     = [" __ "
-                             ,"//\\\\"
-                             ,"\\\\//"
-                             ,"    "]
+                             ,"╱╱╲╲"
+                             ,"╲╲╱╱"
+                             ," ‾‾ "]
 selectArt Solid   Oval     = [" __ "
-                             ,"/XX\\"
-                             ,"\\XX/"
-                             ,"    "]
+                             ,"╱╳╳╲"
+                             ,"╲╳╳╱"
+                             ," ‾‾ "]
 
 -------------------------------------------------------------------------------
 -- List utilities--------------------------------------------------------------
