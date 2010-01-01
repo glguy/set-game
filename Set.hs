@@ -89,12 +89,13 @@ game' :: (?term :: TI.Terminal)
       -> [Card] -- ^ Current deck
       -> IO ()
 game' tableau deck = do
+  putStrLn ("Cards in deck: " ++ show (length deck))
   printCards tableau
   putStrLn ""
   sel <- prompt "Selection:"
   case sel of
     Nothing      -> return ()
-    Just (0,0,0) -> checkNosets tableau deck
+    Just (0,0,0) -> checkNoSets tableau deck
     Just (a,b,c)
       | not (validInput a b c) -> do
               putStrLn "Invalid input"
@@ -106,6 +107,9 @@ game' tableau deck = do
   inbounds x = x > 0 && x <= n
 
 
+-- | 'checkSet' will extract the chosen set from the tableau and check it
+--   for validity. If a valid set is removed from the tableau the tableau
+--   will be refilled up to 12 cards.
 checkSet :: (?term :: TI.Terminal)
          => Int    -- ^ Index of first card in set
          -> Int    -- ^ Index of second card in set
@@ -118,18 +122,18 @@ checkSet a b c tableau deck = do
        printCardRow [card0, card1, card2]
 
        if validSet card0 card1 card2
-         then do putStrLn "Good job"
-                 putStrLn ""
-                 putStrLn ""
+         then do putStrLn "Good job\n"
                  
-                 game' tableau' deck
+                 let cardsNeeded = max 0 (12 - length tableau')
+                 let (dealt, deck') = splitAt cardsNeeded deck
+                 unless (null dealt) $
+                   putStrLn ("Dealing " ++ show (length dealt) ++ " cards")
+                 game' (tableau' ++ dealt) deck'
      
-         else do putStrLn "Not a set!"
-                 putStrLn ""
-                 putStrLn ""
+         else do putStrLn "Not a set!\n"
                  game' tableau deck
 
-checkNosets tableau deck
+checkNoSets tableau deck
   | sets == 0 && null deck = do
        putStrLn "Game over!"
   | sets == 0 = do
@@ -184,7 +188,7 @@ addColor color = f2 TI.Black . f1 termcolor
   where
   termcolor = case color of
     Green  -> TI.Green
-    Purple -> TI.Magenta
+    Purple -> TI.Cyan
     Red    -> TI.Red
 
   Just f1 = TI.getCapability ?term TI.withForegroundColor
