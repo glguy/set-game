@@ -2,7 +2,7 @@
 {-# LANGUAGE NoMonomorphismRestriction #-}
 module Set where
 
-import Control.Monad			(forM_, liftM, unless)
+import Control.Monad			(liftM, unless)
 import Data.Char			(isSpace)
 import Data.List			(tails, transpose)
 import MonadLib				(StateM(..), runId, runStateT)
@@ -34,18 +34,18 @@ validSet :: Card -> Card -> Card -> Bool
 validSet (Card color1 count1 shading1 symbol1)
          (Card color2 count2 shading2 symbol2)
          (Card color3 count3 shading3 symbol3)
-         =  valid color1 color2 color3
-         && valid count1 count2 count3
+         =  valid color1   color2   color3
+         && valid count1   count2   count3
          && valid shading1 shading2 shading3
-         && valid symbol1 symbol2 symbol3
+         && valid symbol1  symbol2  symbol3
 
 allCards :: [Card]
 allCards = [ Card color count shading symbol
-           | color   <- [Red,     Purple,   Green]
-           , count   <- [One,     Two,      Three]
-           , shading <- [Open,    Striped,  Solid]
-           , symbol  <- [Diamond, Squiggle, Oval]
-           ]
+               | color   <- [Red,     Purple,   Green]
+               , count   <- [One,     Two,      Three]
+               , shading <- [Open,    Striped,  Solid]
+               , symbol  <- [Diamond, Squiggle, Oval]
+               ]
 
 -- | 'chooseThree' returns all combinations of three elements.
 chooseThree :: [a] -> [(a,a,a)]
@@ -54,6 +54,8 @@ chooseThree xs = [ (a,b,c) | (a:as) <- tails xs
                            , c      <- bs
                            ]
 
+-- | 'solveBoard' returns the list of all valid sets contained in the given
+--   list.
 solveBoard :: [Card] -> [(Card,Card,Card)]
 solveBoard = filter (curry3 validSet) . chooseThree
             
@@ -101,7 +103,6 @@ game' tableau deck = do
   -- Display current tableau
   putStrLn ("Cards remaining deck: " ++ show (length deck))
   printCards tableau
-  putStrLn ""
 
   -- Handle user input
   sel <- prompt "Selection:"
@@ -177,19 +178,18 @@ checkNoSets tableau deck
 
 -- | Print a list of 'Card's in a grid with 1-based indexing
 printCards :: (?term :: TI.Terminal) => [Card] -> IO ()
-printCards cards = do
-  let indexes = zipWith (++) (replicate 9 " " ++ repeat "")
-                             (map show [1 :: Int ..])
-  let cardLines = map renderCard cards
-  let indexFirstLine i = zipWith (++) (i : repeat "  ")
-  let indexedCardLines = zipWith indexFirstLine indexes cardLines
-  forM_ (groups 3 indexedCardLines) $ \ x -> do
-    mapM_ (putStrLn . concat) (transpose x)
-    putStrLn ""
+printCards = mapM_ (putStrLn . unlines . map concat . transpose . map f)
+           . groups 3
+           . zip paddedIndexes
+  where
+  paddedIndexes = zipWith (++) (replicate 9 " " ++ repeat "")
+                               (map show [1 :: Int ..])
+
+  f (index, card) = zipWith (++) (index : repeat "  ") (renderCard card)
 
 -- | Print a list of 'Card's in a row without indexing
 printCardRow :: (?term :: TI.Terminal) => [Card] -> IO ()
-printCardRow = mapM_ (putStrLn . concatPad) . transpose . map renderCard
+printCardRow = putStr . unlines . map concatPad . transpose . map renderCard
   where concatPad = concatMap ("  "++)
 
 -- | 'renderCard' renders a 'Card' to a list of lines with the appropriate art
@@ -202,8 +202,8 @@ renderCard (Card color count shading symbol)
 --   region.
 duplicate :: Count ->    (String -> String)
 
-duplicate One   x = "      " ++ x ++ "      "
-duplicate Two   x = "   " ++ x ++ "  " ++ x ++ "   "
+duplicate One   x = "      " ++        x        ++ "      "
+duplicate Two   x = "   "    ++ x ++ "  " ++ x  ++    "   "
 duplicate Three x = " " ++ x ++ " " ++ x ++ " " ++ x ++ " "
 
 addColor :: (?term :: TI.Terminal) => Color -> String -> String
@@ -261,6 +261,9 @@ selectArt Solid   Oval     = [" __ "
 -- List utilities--------------------------------------------------------------
 -------------------------------------------------------------------------------
 
+-- | 'groups' breaks a list into sublists of the given size. The final resulting
+--   group may contain fewer elements than the given size.
+--   Property: For all positive n. concat (groups n xs) == xs
 groups :: Int -> [a] -> [[a]]
 groups _ [] = []
 groups n xs = as : groups n bs
@@ -281,6 +284,8 @@ select3 a b c xs = (x0,x1,x2,xs2)
   (x1,xs1) = select (dec a b) xs0
   (x2,xs2) = select (dec a (dec b c)) xs1
 
+  -- | 'dec' is used to correct indexes that will be affected
+  -- by previous selects.
   dec x y | x < y     = y - 1
           | otherwise = y
 
