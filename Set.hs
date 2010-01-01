@@ -101,26 +101,18 @@ game :: (?term :: TI.Terminal) => IO ()
 game = game' [] =<< shuffleIO allCards
 
 game' :: (?term :: TI.Terminal) => [Card] -> [Card] -> IO ()
+game' [] [] = putStrLn "Game over!"
 game' tableau deck = do
   (tableau', deck') <- deal tableau deck
 
-  -- Display current tableau
   putStrLn ("Cards remaining deck: " ++ show (length deck'))
   putStr (renderTableau tableau')
 
-  -- Handle user input
   sel <- prompt "Selection:"
   case sel of
     Nothing                     -> return ()
     Just (0,0,0)                -> checkNoSets tableau' deck'
-    Just (a,b,c) | validInput   -> checkSet a b c tableau' deck'
-                 | otherwise    -> do putStrLn "Invalid input"
-                                      game' tableau' deck'
-                 where
-                 inputs = [a,b,c]
-                 n = length tableau'
-                 validInput = all (uncurry (/=)) (chooseTwo inputs)
-                           && all (bounded 1 n) inputs
+    Just (a,b,c)                -> checkSet a b c tableau' deck'
 -- | 'deal' adds cards to the tableau from the deck up to a minimum of
 --   'tableauSize' cards.
 deal :: [Card] -> [Card] -> IO ([Card],[Card])
@@ -142,15 +134,22 @@ checkSet :: (?term :: TI.Terminal)
          -> [Card] -- ^ Current deck
          -> IO ()
 checkSet a b c tableau deck = do
-  putStr $ renderCardRow [card0, card1, card2]
   putStrLn message
   game' nextTableau deck
   where
   (card0, card1, card2, tableau') = select3 (a-1) (b-1) (c-1) tableau
 
+  row = renderCardRow [card0, card1, card2]
+
   (message, nextTableau)
-    | validSet card0 card1 card2        = ("Good job\n", tableau')
-    | otherwise                         = ("Not a set!\n", tableau)
+    | not validInput                    = ("Invalid selection.\n", tableau)
+    | validSet card0 card1 card2        = (row ++ "Good job.\n", tableau')
+    | otherwise                         = (row ++ "Not a set!\n", tableau)
+
+  inputs = [a,b,c]
+  n = length tableau
+  validInput = all (uncurry (/=)) (chooseTwo inputs)
+            && all (bounded 1 n) inputs
 
 
 checkNoSets :: (?term :: TI.Terminal) => [Card] -> [Card] -> IO ()
