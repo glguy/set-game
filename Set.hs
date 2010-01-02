@@ -4,12 +4,12 @@
 module Set where
 
 import Control.Applicative              ((<$))
-import Control.Monad                    (liftM, liftM4, unless)
+import Control.Monad                    (liftM, liftM2, liftM4, unless)
 import Data.Char                        (isDigit, isSpace)
 import Data.Function                    (on)
 import Data.List                        (tails, transpose)
 import MonadLib                         (StateM(..), runId, runStateT)
-import System.Console.Editline.Readline (readline)
+import System.Console.Editline.Readline (readline, addHistory)
 import System.Random                    (newStdGen, RandomGen, randomR)
 import Text.ParserCombinators.ReadP     (readP_to_S, (+++), munch1,
                                          sepBy, skipSpaces, string)
@@ -99,7 +99,7 @@ tableauSize = 12
 tableauWidth :: Int
 tableauWidth = 3
 
-data Command = Deal | SelectSet Int Int Int | Hint | Shuffle
+data Command = Deal | SelectSet Int Int Int | Hint | Shuffle | Help | Example
   deriving (Eq, Show)
 
 game :: (?term :: TI.Terminal) => IO ()
@@ -113,13 +113,34 @@ game' tableau deck = do
   putStrLn ("Cards remaining deck: " ++ show (length deck'))
   putStr (renderTableau tableau')
 
-  sel <- prompt "Selection:"
+  sel <- prompt "Selection: "
   case sel of
     Nothing                     -> return ()
     Just Deal                   -> checkNoSets tableau' deck'
     Just Hint                   -> hint tableau' >> game' tableau' deck'
+    Just Help                   -> help >> game' tableau' deck'
     Just Shuffle                -> flip game' deck' =<< shuffleIO tableau'
+    Just Example                -> example >> game' tableau' deck'
     Just (SelectSet a b c)      -> checkSet a b c tableau' deck'
+
+example = do
+  let xs = liftM2 (,) [Red,Purple,Green] [One,Two,Three]
+      ys = liftM2 (,) [Diamond, Squiggle, Oval] [Solid, Striped, Open]
+      cards = zipWith (\ (col,cou) (shap, shad) -> Card col cou shad shap) xs ys
+  putStr $ renderTableau cards
+  putStrLn "Press enter to continue."
+  getLine
+
+help = do
+  putStrLn "# # #     Choose a set"
+  putStrLn "deal      Check for sets and deal three more cards if none"
+  putStrLn "example   Show example cards of every characteristic"
+  putStrLn "help      This menu"
+  putStrLn "hint      Show one of the cards that fits in a set"
+  putStrLn "shuffle   Shuffle the current tableau"
+  putStrLn ""
+  putStrLn "Press enter to continue."
+  getLine
 
 -- | 'deal' adds cards to the tableau from the deck up to a minimum of
 --   'tableauSize' cards.
@@ -312,9 +333,11 @@ select3 a b c xs = (x0,x1,x2,xs2)
 -------------------------------------------------------------------------------
 
 instance Read Command where
-  readsPrec _ = readP_to_S $ (Hint <$ string "hint")
-                         +++ (Deal <$ string "deal")
+  readsPrec _ = readP_to_S $ (Hint    <$ string "hint")
+                         +++ (Deal    <$ string "deal")
                          +++ (Shuffle <$ string "shuffle")
+                         +++ (Help    <$ string "help")
+                         +++ (Example <$ string "example")
                          +++ selectSetP
     where
     selectSetP = do
@@ -334,7 +357,8 @@ prompt :: Read a => String -> IO (Maybe a)
 prompt p = parseLn ?=<< readline p
   where
   parseLn ln = case reads ln of
-    [(x,white)] | all isSpace white -> return (Just x)
+    [(x,white)] | all isSpace white -> do addHistory ln
+                                          return (Just x)
     _ -> do putStrLn "Bad input"
             prompt p
 
