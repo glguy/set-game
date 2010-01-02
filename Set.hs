@@ -3,13 +3,16 @@
 {-# LANGUAGE NoMonomorphismRestriction #-}
 module Set where
 
+import Control.Applicative              ((<$))
 import Control.Monad                    (liftM, liftM4, unless)
-import Data.Char                        (isSpace)
+import Data.Char                        (isDigit, isSpace)
 import Data.Function                    (on)
 import Data.List                        (tails, transpose)
 import MonadLib                         (StateM(..), runId, runStateT)
 import System.Console.Editline.Readline (readline)
 import System.Random                    (newStdGen, RandomGen, randomR)
+import Text.ParserCombinators.ReadP     (readP_to_S, (+++), munch1,
+                                         sepBy, skipSpaces, string)
 import qualified System.Console.Terminfo as TI
   
 data Color = Red | Purple | Green
@@ -96,7 +99,9 @@ tableauSize = 12
 tableauWidth :: Int
 tableauWidth = 3
 
--- | 'game' shuffles
+data Command = Deal | SelectSet Int Int Int | Hint | Shuffle
+  deriving (Eq, Show)
+
 game :: (?term :: TI.Terminal) => IO ()
 game = game' [] =<< shuffleIO allCards
 
@@ -111,8 +116,11 @@ game' tableau deck = do
   sel <- prompt "Selection:"
   case sel of
     Nothing                     -> return ()
-    Just (0,0,0)                -> checkNoSets tableau' deck'
-    Just (a,b,c)                -> checkSet a b c tableau' deck'
+    Just Deal                   -> checkNoSets tableau' deck'
+    Just Hint                   -> hint tableau' >> game' tableau' deck'
+    Just Shuffle                -> flip game' deck' =<< shuffleIO tableau'
+    Just (SelectSet a b c)      -> checkSet a b c tableau' deck'
+
 -- | 'deal' adds cards to the tableau from the deck up to a minimum of
 --   'tableauSize' cards.
 deal :: [Card] -> [Card] -> IO ([Card],[Card])
@@ -122,6 +130,14 @@ deal tableau deck = do
  where
   (dealt, deck')    = splitAt (tableauSize - length tableau) deck
 
+hint :: (?term::TI.Terminal) => [Card] -> IO ()
+hint tableau = do
+  tableau' <- shuffleIO tableau
+  case solveBoard tableau' of
+    ((a,_,_):_) -> do putStrLn "There is a set using this card."
+                      putStrLn $ unlines $ renderCard a
+
+    _           -> do putStrLn "No solutions"
 
 -- | 'checkSet' will extract the chosen set from the tableau and check it
 --   for validity. If a valid set is removed from the tableau the tableau
@@ -290,6 +306,23 @@ select3 a b c xs = (x0,x1,x2,xs2)
   -- by previous selects.
   dec x y z | x < y     = z - 1
             | otherwise = z
+
+-------------------------------------------------------------------------------
+-- Input parser ---------------------------------------------------------------
+-------------------------------------------------------------------------------
+
+instance Read Command where
+  readsPrec _ = readP_to_S $ (Hint <$ string "hint")
+                         +++ (Deal <$ string "deal")
+                         +++ (Shuffle <$ string "shuffle")
+                         +++ selectSetP
+    where
+    selectSetP = do
+      [a,b,c] <- intP `sepBy` skipSpaces
+      return (SelectSet a b c)
+
+    intP = read `fmap` munch1 isDigit
+
 
 -------------------------------------------------------------------------------
 -- Other utilities ------------------------------------------------------------
