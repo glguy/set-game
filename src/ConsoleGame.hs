@@ -9,7 +9,7 @@ import Text.ParserCombinators.ReadP     (readP_to_S, (+++), munch1,
                                          sepBy, skipSpaces, string)
 import qualified System.Console.Terminfo as TI
   
-import Set
+import Set.Card
 import Set.Ascii
 import Set.Utils
 

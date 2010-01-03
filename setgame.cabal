@@ -12,3 +12,4 @@ executable ConsoleGame
   build-depends:	base == 4.*, random == 1.0.*, monadLib == 3.6.*,
                         terminfo == 0.3.*, editline == 0.2.*
   hs-source-dirs: src
+  ghc-options: -Wall

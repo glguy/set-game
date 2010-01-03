@@ -6,7 +6,7 @@ module Set.Ascii (renderTableau, renderCardRow, renderCard) where
 import Data.List                        (transpose)
 import qualified System.Console.Terminfo as TI
 
-import Set
+import Set.Card
 import Set.Utils
 
 -- | 'tableauWidth' is the number of cards to be rendered in each row on the
