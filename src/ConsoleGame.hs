@@ -9,13 +9,13 @@ import Data.Ord                         (comparing)
 import Data.Monoid                      (mconcat)
 import System.Console.Editline.Readline (readline, addHistory)
 import Text.ParserCombinators.ReadP
-        (ReadP, readP_to_S, readS_to_P, choice, munch1, many1, skipSpaces,
+        (ReadP, readP_to_S, readS_to_P, choice, munch1, skipSpaces,
          string, eof, sepBy1)
 import qualified System.Console.Terminfo as TI
   
+import Set.Ascii
 import Set.Card
 import Set.GameLogic
-import Set.Ascii
 import Set.Utils
 
 main :: IO ()
@@ -127,9 +127,10 @@ checkNoSets game = case extraCards game of
 -- | 'prompt' wraps 'readline' with a 'Read' parser and repeats the prompt
 --   on a failed parse.
 prompt :: Read a => String -> IO (Maybe a)
-prompt p = parseLn ?=<< readline p
+prompt p = parseLn =<< readline p
   where
-  parseLn ln = do
+  parseLn Nothing = return Nothing
+  parseLn (Just ln) = do
     addHistory ln
     case reads ln of
       [(x,_)] -> return (Just x)

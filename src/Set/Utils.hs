@@ -41,16 +41,6 @@ select3 a b c xs = (x0,x1,x2,xs2)
 -- Other utilities ------------------------------------------------------------
 -------------------------------------------------------------------------------
 
--- | '?=<<' is the monadic bind operator for MaybeT, except inlined to not
---   require a newtype.
-(?=<<) :: Monad m => (a -> m (Maybe b)) -> m (Maybe a) -> m (Maybe b)
-f ?=<< m = maybe (return Nothing) f =<< m
-
--- | 'curry3' converts an uncurried function on 3 arguments to a curried
---   function on a 3-tuple. 
-curry3 :: (a -> b -> c -> d) -> (a,b,c) -> d
-curry3 f (a,b,c) = f a b c
-
 -- | 'bounded' test that x is between lo and hi (inclusive).
 bounded :: Ord a => a -> a -> a -> Bool
 bounded lo hi x = lo <= x && x <= hi
