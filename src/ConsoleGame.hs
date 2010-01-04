@@ -2,14 +2,15 @@
 {-# LANGUAGE NamedFieldPuns #-}
 module Main where
 
-import Control.Applicative              ((<$),(<$>))
-import Control.Monad                    (liftM2, unless)
-import Data.Char                        (isDigit, isSpace)
+import Control.Applicative              ((<$),(<$>), Applicative(..),(<*))
+import Control.Monad                    (ap, liftM2, unless)
+import Data.Char                        (isSpace)
 import Data.Ord                         (comparing)
 import Data.Monoid                      (mconcat)
 import System.Console.Editline.Readline (readline, addHistory)
-import Text.ParserCombinators.ReadP     (ReadP, readP_to_S, (+++), munch1,
-                                         many, many1, skipSpaces, string, eof)
+import Text.ParserCombinators.ReadP
+        (ReadP, readP_to_S, readS_to_P, choice, munch1, many1, skipSpaces,
+         string, eof, sepBy1)
 import qualified System.Console.Terminfo as TI
   
 import Set.Card
@@ -131,37 +132,44 @@ prompt p = parseLn ?=<< readline p
   parseLn ln = do
     addHistory ln
     case reads ln of
-      [(x,white)] | all isSpace white -> return (Just x)
+      [(x,_)] -> return (Just x)
       _ -> do putStrLn "Bad input"
               prompt p
 
 instance Read Command where
-  readsPrec _ = readP_to_S $ do
-                    res <- (Hint    <$ string "hint")
-                       +++ (Deal    <$ string "deal")
-                       +++ (Shuffle <$ string "shuffle")
-                       +++ (Help    <$ string "help")
-                       +++ (Example <$ string "example")
-                       +++ sortP
-                       +++ selectSetP
-                    skipSpaces
-                    eof 
-                    return res
-    where
-    selectSetP = do
-      [a,b,c] <- many (skipSpaces >> intP)
-      return (SelectSet a b c)
+  readsPrec _ = readP_to_S commandP
 
-    intP = read <$> munch1 isDigit
+commandP :: ReadP Command
+commandP = skipSpaces
+        *> choice [Hint      <$  string "hint"
+                  ,Deal      <$  string "deal"
+                  ,Shuffle   <$  string "shuffle"
+                  ,Help      <$  string "help"
+                  ,Example   <$  string "example"
+                  ,Sort      <$> sortP
+                  ,selectSetP]
+        <* skipSpaces
+        <* eof
 
-    sortP = do
-      _ <- string "sort"
-      fmap (Sort . mconcat) (many1 (whiteSpace >> ordP))
+selectSetP :: ReadP Command
+selectSetP = SelectSet <$> intP <*> (skipSpaces *> intP)
+                                <*> (skipSpaces *> intP)
 
-    ordP = (comparing color   <$ string "color")
-       +++ (comparing shading <$ string "shading")
-       +++ (comparing count   <$ string "count")
-       +++ (comparing symbol  <$ string "symbol")
+intP :: ReadP Int
+intP = readS_to_P reads
 
-whiteSpace :: ReadP ()
-whiteSpace = munch1 isSpace >> return ()
+sortP :: ReadP (Card -> Card -> Ordering)
+sortP = string "sort" *> skipSpaces1
+     *> (mconcat <$> sepBy1 ordP skipSpaces1)
+  where
+    ordP = choice [comparing color   <$ string "color"
+                  ,comparing count   <$ string "count"
+                  ,comparing shading <$ string "shading"
+                  ,comparing symbol  <$ string "symbol"]
+
+skipSpaces1 :: ReadP ()
+skipSpaces1 = () <$ munch1 isSpace
+
+instance Applicative ReadP where
+ (<*>) = ap
+ pure = return
