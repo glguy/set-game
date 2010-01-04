@@ -3,7 +3,7 @@
 module Main where
 
 import Control.Applicative              ((<$),(<$>), Applicative(..),(<*))
-import Control.Monad                    (ap, liftM2, unless)
+import Control.Monad                    (ap, liftM2)
 import Data.Char                        (isSpace)
 import Data.Ord                         (comparing)
 import Data.Monoid                      (mconcat)
@@ -28,14 +28,14 @@ main = do
 data Command = Deal | SelectSet Int Int Int | Hint | Shuffle | Help | Example
              | Sort (Card -> Card -> Ordering)
 
-run :: (?term :: TI.Terminal) => Game -> IO ()
-run game | noCards game = putStrLn "Game over!"
-run game0 = do
-  let (game, dealt) = deal game0
-  unless (dealt == 0)
-    (putStrLn ("Dealing " ++ show dealt ++ " cards"))
+emptyGame :: Game -> Bool
+emptyGame game = null (currentTableau game) && deckNull game
 
-  printGame game
+run :: (?term :: TI.Terminal) => Game -> IO ()
+run game | emptyGame game = putStrLn "No card left; Game over!"
+run game = do
+  let tableauCards = currentTableau game
+  printGame tableauCards (deckSize game)
 
   sel <- prompt "Selection: "
   case sel of
@@ -45,13 +45,13 @@ run game0 = do
     Just Help                   -> help >> run game
     Just Shuffle                -> run =<< shuffleTableau game
     Just Example                -> example >> run game
-    Just (SelectSet a b c)      -> checkSet a b c game
+    Just (SelectSet a b c)      -> checkSet a b c tableauCards game
     Just (Sort f)		-> run (sortTableau f game)
 
-printGame :: (?term::TI.Terminal) => Game -> IO ()
-printGame Game { tableau, deck } = do
-  putStrLn ("Cards remaining deck: " ++ show (length deck))
-  putStr (renderTableau tableau)
+printGame :: (?term::TI.Terminal) => [Card] -> Int -> IO ()
+printGame cards n = do
+  putStrLn ("Cards remaining in deck: " ++ show n)
+  putStr (renderTableau cards)
 
 example :: (?term :: TI.Terminal) => IO ()
 example = do
@@ -93,33 +93,28 @@ checkSet :: (?term :: TI.Terminal)
          => Int    -- ^ Index of first card in set
          -> Int    -- ^ Index of second card in set
          -> Int    -- ^ Index of third card in set
+         -> [Card]
          -> Game 
          -> IO ()
-checkSet a b c Game {tableau, deck} = do
-  putStrLn message
-  run (Game nextTableau deck)
+checkSet a b c cards game
+  | uniques [a,b,c] = case mbCards of
+      Just (card0, card1, card2) ->
+         let row = renderCardRow [card0, card1, card2]
+         in case considerSet card0 card1 card2 game of
+             Nothing    -> putStrLn (row ++ "Not a set.") >> run game
+             Just game' -> putStrLn (row ++ "Good job.")  >> run game'
+         
+      Nothing -> putStrLn "Invalid selection."  >> run game
+  | otherwise = putStrLn "Duplicate selection."  >> run game
   where
-  (card0, card1, card2, tableau') = select3 (a-1) (b-1) (c-1) tableau
-
-  row = renderCardRow [card0, card1, card2]
-
-  (message, nextTableau)
-    | not validInput                    = ("Invalid selection.\n", tableau)
-    | validSet card0 card1 card2        = (row ++ "Good job.\n", tableau')
-    | otherwise                         = (row ++ "Not a set!\n", tableau)
-
-  inputs = [a,b,c]
-  n = length tableau
-  validInput = all (uncurry (/=)) (chooseTwo inputs)
-            && all (bounded 1 n) inputs
-
+  mbCards = (,,) <$> index (a-1) cards
+                 <*> index (b-1) cards
+                 <*> index (c-1) cards
 
 checkNoSets :: (?term :: TI.Terminal) => Game -> IO ()
 checkNoSets game = case extraCards game of
-  Right (_, 0) -> putStrLn "Game over!"
-  Right (game', n) -> do
-       putStrLn ("Dealing " ++ show n ++ " more cards")
-       run game'
+  Right game' -> run game'
+  Left 0 -> putStrLn "Game over!"
   Left sets -> do
        putStrLn $ "Oops, " ++ show sets ++ " sets in tableau. Keep looking."
        run game

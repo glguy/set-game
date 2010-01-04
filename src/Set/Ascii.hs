@@ -28,7 +28,7 @@ renderTableau = unlines
               . map renderCard
   where
   pads = replicate 9 " " ++ repeat ""
-  addIndex pad index = zipWith (++) ((pad ++ show index) : repeat "  ")
+  addIndex pad i = zipWith (++) ((pad ++ show i) : repeat "  ")
 
 -- | 'renderCardRow' renders a list of 'Card's in a row without indexing.
 renderCardRow :: (?term :: TI.Terminal) => [Card] -> String

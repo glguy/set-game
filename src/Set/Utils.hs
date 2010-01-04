@@ -18,6 +18,19 @@ groups n xs = as : groups n bs
   where
   (as,bs) = splitAt n xs
 
+delete1 :: Eq a => a -> [a] -> Maybe [a]
+delete1 x (y:ys)
+  | x == y = Just ys
+  | otherwise = fmap (y:) (delete1 x ys)
+delete1 _ [] = Nothing
+
+index 0 (x:_)		= Just x
+index n (_:xs) | n > 0	= index (n-1) xs
+index _ _		= Nothing
+
+uniques :: Eq a => [a] -> Bool
+uniques = all (uncurry (/=)) . chooseTwo
+
 select :: Int -> [a] -> (a,[a])
 select _ [] = error "select: index too large"
 select 0 (x:xs) = (x,xs)

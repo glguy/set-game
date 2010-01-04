@@ -1,5 +1,25 @@
 {-# LANGUAGE NamedFieldPuns #-}
-module Set.GameLogic where
+module Set.GameLogic (
+        -- * Types
+          Game
+
+        -- * 'Game' creation functions
+        , newGame
+
+        -- * 'Game' update functions
+        , considerSet
+        , extraCards
+        , shuffleTableau
+        , sortTableau
+
+        -- * Game query functions
+        , currentTableau
+        , deckNull
+        , deckSize
+        , hint
+  ) where
+
+import Control.Monad (guard)
 
 import Set.Card
 import Set.Utils
@@ -8,16 +28,20 @@ import Data.List (sortBy)
 data Game = Game
   { tableau, deck :: [Card] }
 
+currentTableau :: Game -> [Card]
+currentTableau = tableau
+
+-- | 'newGame' creates a new 'Game' with a full tableau and shuffled deck.
 newGame :: IO Game
 newGame = do
   d <- shuffleIO allCards
-  return Game { tableau = [] , deck = d }
+  return (deal Game { tableau = [] , deck = d })
 
 -- | 'tableauSize' is the minimum number of cards that should be on the tableau.
 tableauSize :: Int
 tableauSize = 12
 
-deal :: Game -> (Game, Int)
+deal :: Game -> Game
 deal game = addCards (tableauSize - length (tableau game)) game
 
 shuffleTableau :: Game -> IO Game
@@ -25,21 +49,28 @@ shuffleTableau game = do
   tableau' <- shuffleIO (tableau game)
   return game { tableau = tableau' }
 
-addCards :: Int -> Game -> (Game, Int)
-addCards n Game { tableau, deck } = (game', length dealt)
+considerSet :: Card -> Card -> Card -> Game -> Maybe Game
+considerSet card0 card1 card2 game = do
+  guard (validSet card0 card1 card2)
+  tableau' <- delete1 card0 =<< delete1 card1 =<< delete1 card2 (tableau game)
+  return (deal game { tableau = tableau' })
+
+addCards :: Int -> Game -> Game
+addCards n Game { tableau, deck } =
+  Game { tableau = tableau ++ dealt, deck = deck' }
   where
-  game' = Game { tableau = tableau ++ dealt,
-                 deck    = deck' }
   (dealt, deck')    = splitAt n deck
 
-noCards :: Game -> Bool
-noCards Game { tableau = [], deck = [] } = True
-noCards _ = False
+deckSize :: Game -> Int
+deckSize Game { deck } = length deck
 
-extraCards :: Game -> Either Int (Game, Int)
+deckNull :: Game -> Bool
+deckNull Game { deck } = null deck
+
+extraCards :: Game -> Either Int Game
 extraCards game
-  | sets == 0 = Right (addCards 3 game)
-  | otherwise = Left sets
+  | sets == 0 && not (deckNull game) = Right (addCards 3 game)
+  | otherwise                        = Left sets
   where
    sets = length (solve (tableau game))
 
