@@ -17,16 +17,16 @@ import Data.List                        (tails)
 import Set.Utils
   
 data Color = Red | Purple | Green
- deriving (Show, Eq)
+ deriving (Show, Eq, Ord)
 
 data Count = One | Two | Three
- deriving (Show, Eq)
+ deriving (Show, Eq, Ord)
  
 data Shading = Open | Striped | Solid
- deriving (Show, Eq)
+ deriving (Show, Eq, Ord)
  
 data Symbol = Diamond | Squiggle | Oval
- deriving (Show, Eq)
+ deriving (Show, Eq, Ord)
 
 data Card = Card { color :: Color
                  , count :: Count

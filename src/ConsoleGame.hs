@@ -1,52 +1,56 @@
 {-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE NamedFieldPuns #-}
 module Main where
 
-import Control.Applicative              ((<$))
+import Control.Applicative              ((<$),(<$>))
 import Control.Monad                    (liftM2, unless)
 import Data.Char                        (isDigit, isSpace)
+import Data.Ord                         (comparing)
+import Data.Monoid                      (mconcat)
 import System.Console.Editline.Readline (readline, addHistory)
-import Text.ParserCombinators.ReadP     (readP_to_S, (+++), munch1,
-                                         sepBy, skipSpaces, string)
+import Text.ParserCombinators.ReadP     (ReadP, readP_to_S, (+++), munch1,
+                                         many, many1, skipSpaces, string, eof)
 import qualified System.Console.Terminfo as TI
   
 import Set.Card
+import Set.GameLogic
 import Set.Ascii
 import Set.Utils
 
 main :: IO ()
 main = do
   term <- TI.setupTermFromEnv
+  game <- newGame
   let ?term = term
-  game
-
--- | 'tableauSize' is the minimum number of cards that should be on the tableau.
-tableauSize :: Int
-tableauSize = 12
-
+  run game
 
 data Command = Deal | SelectSet Int Int Int | Hint | Shuffle | Help | Example
-  deriving (Eq, Show)
+             | Sort (Card -> Card -> Ordering)
 
-game :: (?term :: TI.Terminal) => IO ()
-game = game' [] =<< shuffleIO allCards
+run :: (?term :: TI.Terminal) => Game -> IO ()
+run game | noCards game = putStrLn "Game over!"
+run game0 = do
+  let (game, dealt) = deal game0
+  unless (dealt == 0)
+    (putStrLn ("Dealing " ++ show dealt ++ " cards"))
 
-game' :: (?term :: TI.Terminal) => [Card] -> [Card] -> IO ()
-game' [] [] = putStrLn "Game over!"
-game' tableau deck = do
-  (tableau', deck') <- deal tableau deck
-
-  putStrLn ("Cards remaining deck: " ++ show (length deck'))
-  putStr (renderTableau tableau')
+  printGame game
 
   sel <- prompt "Selection: "
   case sel of
     Nothing                     -> return ()
-    Just Deal                   -> checkNoSets tableau' deck'
-    Just Hint                   -> hint tableau' >> game' tableau' deck'
-    Just Help                   -> help >> game' tableau' deck'
-    Just Shuffle                -> flip game' deck' =<< shuffleIO tableau'
-    Just Example                -> example >> game' tableau' deck'
-    Just (SelectSet a b c)      -> checkSet a b c tableau' deck'
+    Just Deal                   -> checkNoSets game
+    Just Hint                   -> giveHint game >> run game
+    Just Help                   -> help >> run game
+    Just Shuffle                -> run =<< shuffleTableau game
+    Just Example                -> example >> run game
+    Just (SelectSet a b c)      -> checkSet a b c game
+    Just (Sort f)		-> run (sortTableau f game)
+
+printGame :: (?term::TI.Terminal) => Game -> IO ()
+printGame Game { tableau, deck } = do
+  putStrLn ("Cards remaining deck: " ++ show (length deck))
+  putStr (renderTableau tableau)
 
 example :: (?term :: TI.Terminal) => IO ()
 example = do
@@ -71,20 +75,12 @@ help = do
   _ <- getLine
   return ()
 
--- | 'deal' adds cards to the tableau from the deck up to a minimum of
---   'tableauSize' cards.
-deal :: [Card] -> [Card] -> IO ([Card],[Card])
-deal tableau deck = do
-  unless (null dealt) (putStrLn ("Dealing " ++ show (length dealt) ++ " cards"))
-  return (tableau ++ dealt, deck')
- where
-  (dealt, deck')    = splitAt (tableauSize - length tableau) deck
 
-hint :: (?term::TI.Terminal) => [Card] -> IO ()
-hint tableau = do
-  tableau' <- shuffleIO tableau
-  case solve tableau' of
-    ((a,_,_):_) -> do putStrLn "There is a set using this card."
+giveHint :: (?term::TI.Terminal) => Game -> IO ()
+giveHint game = do
+  mbHint <- hint game
+  case mbHint of
+    Just a      -> do putStrLn "There is a set using this card."
                       putStrLn $ unlines $ renderCard a
 
     _           -> do putStrLn "No solutions"
@@ -96,12 +92,11 @@ checkSet :: (?term :: TI.Terminal)
          => Int    -- ^ Index of first card in set
          -> Int    -- ^ Index of second card in set
          -> Int    -- ^ Index of third card in set
-         -> [Card] -- ^ Current tableau
-         -> [Card] -- ^ Current deck
+         -> Game 
          -> IO ()
-checkSet a b c tableau deck = do
+checkSet a b c Game {tableau, deck} = do
   putStrLn message
-  game' nextTableau deck
+  run (Game nextTableau deck)
   where
   (card0, card1, card2, tableau') = select3 (a-1) (b-1) (c-1) tableau
 
@@ -118,43 +113,55 @@ checkSet a b c tableau deck = do
             && all (bounded 1 n) inputs
 
 
-checkNoSets :: (?term :: TI.Terminal) => [Card] -> [Card] -> IO ()
-checkNoSets tableau deck
-  | sets == 0 && null deck = do
-       putStrLn "Game over!"
-
-  | sets == 0 = do
-       putStrLn "Dealing three more cards"
-       let (replacement, deck') = splitAt 3 deck
-       game' (tableau ++ replacement) deck'
-    
-  | otherwise = do
+checkNoSets :: (?term :: TI.Terminal) => Game -> IO ()
+checkNoSets game = case extraCards game of
+  Right (_, 0) -> putStrLn "Game over!"
+  Right (game', n) -> do
+       putStrLn ("Dealing " ++ show n ++ " more cards")
+       run game'
+  Left sets -> do
        putStrLn $ "Oops, " ++ show sets ++ " sets in tableau. Keep looking."
-       game' tableau deck
-  where
-       sets = length (solve tableau)
+       run game
 
 -- | 'prompt' wraps 'readline' with a 'Read' parser and repeats the prompt
 --   on a failed parse.
 prompt :: Read a => String -> IO (Maybe a)
 prompt p = parseLn ?=<< readline p
   where
-  parseLn ln = case reads ln of
-    [(x,white)] | all isSpace white -> do addHistory ln
-                                          return (Just x)
-    _ -> do putStrLn "Bad input"
-            prompt p
+  parseLn ln = do
+    addHistory ln
+    case reads ln of
+      [(x,white)] | all isSpace white -> return (Just x)
+      _ -> do putStrLn "Bad input"
+              prompt p
 
 instance Read Command where
-  readsPrec _ = readP_to_S $ (Hint    <$ string "hint")
-                         +++ (Deal    <$ string "deal")
-                         +++ (Shuffle <$ string "shuffle")
-                         +++ (Help    <$ string "help")
-                         +++ (Example <$ string "example")
-                         +++ selectSetP
+  readsPrec _ = readP_to_S $ do
+                    res <- (Hint    <$ string "hint")
+                       +++ (Deal    <$ string "deal")
+                       +++ (Shuffle <$ string "shuffle")
+                       +++ (Help    <$ string "help")
+                       +++ (Example <$ string "example")
+                       +++ sortP
+                       +++ selectSetP
+                    skipSpaces
+                    eof 
+                    return res
     where
     selectSetP = do
-      [a,b,c] <- intP `sepBy` skipSpaces
+      [a,b,c] <- many (skipSpaces >> intP)
       return (SelectSet a b c)
 
-    intP = read `fmap` munch1 isDigit
+    intP = read <$> munch1 isDigit
+
+    sortP = do
+      _ <- string "sort"
+      fmap (Sort . mconcat) (many1 (whiteSpace >> ordP))
+
+    ordP = (comparing color   <$ string "color")
+       +++ (comparing shading <$ string "shading")
+       +++ (comparing count   <$ string "count")
+       +++ (comparing symbol  <$ string "symbol")
+
+whiteSpace :: ReadP ()
+whiteSpace = munch1 isSpace >> return ()
