@@ -29,12 +29,12 @@ data Command = Deal | SelectSet Int Int Int | Hint | Shuffle | Help | Example
              | Sort (Card -> Card -> Ordering)
 
 emptyGame :: Game -> Bool
-emptyGame game = null (currentTableau game) && deckNull game
+emptyGame game = null (tableau game) && deckNull game
 
 run :: (?term :: TI.Terminal) => Game -> IO ()
 run game | emptyGame game = putStrLn "No card left; Game over!"
 run game = do
-  let tableauCards = currentTableau game
+  let tableauCards = tableau game
   printGame tableauCards (deckSize game)
 
   sel <- prompt "Selection: "

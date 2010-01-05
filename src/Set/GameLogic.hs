@@ -13,7 +13,7 @@ module Set.GameLogic (
         , sortTableau
 
         -- * Game query functions
-        , currentTableau
+        , tableau
         , deckNull
         , deckSize
         , hint
@@ -25,47 +25,43 @@ import Set.Card
 import Set.Utils
 import Data.List (sortBy)
 
-data Game = Game
-  { tableau, deck :: [Card] }
+data Game = Game [Card] [Card]
 
-currentTableau :: Game -> [Card]
-currentTableau = tableau
+tableau :: Game -> [Card]
+tableau (Game t _) = t
 
 -- | 'newGame' creates a new 'Game' with a full tableau and shuffled deck.
 newGame :: IO Game
-newGame = do
-  d <- shuffleIO allCards
-  return (deal Game { tableau = [] , deck = d })
+newGame = (deal . Game []) `fmap` shuffleIO allCards
 
 -- | 'tableauSize' is the minimum number of cards that should be on the tableau.
 tableauSize :: Int
 tableauSize = 12
 
 deal :: Game -> Game
-deal game = addCards (tableauSize - length (tableau game)) game
+deal game@(Game t _) = addCards (tableauSize - length t) game
 
 shuffleTableau :: Game -> IO Game
-shuffleTableau game = do
-  tableau' <- shuffleIO (tableau game)
-  return game { tableau = tableau' }
+shuffleTableau (Game t d) = do
+  t' <- shuffleIO t
+  return (Game t' d)
 
 considerSet :: Card -> Card -> Card -> Game -> Maybe Game
-considerSet card0 card1 card2 game = do
+considerSet card0 card1 card2 (Game t d) = do
   guard (validSet card0 card1 card2)
-  tableau' <- delete1 card0 =<< delete1 card1 =<< delete1 card2 (tableau game)
-  return (deal game { tableau = tableau' })
+  t' <- delete1 card0 =<< delete1 card1 =<< delete1 card2 t
+  return (deal (Game t' d))
 
 addCards :: Int -> Game -> Game
-addCards n Game { tableau, deck } =
-  Game { tableau = tableau ++ dealt, deck = deck' }
+addCards n (Game t d) = Game (t ++ dealt) d'
   where
-  (dealt, deck')    = splitAt n deck
+  (dealt, d')    = splitAt n d
 
 deckSize :: Game -> Int
-deckSize Game { deck } = length deck
+deckSize (Game _ d) = length d
 
 deckNull :: Game -> Bool
-deckNull Game { deck } = null deck
+deckNull (Game _ d) = null d
 
 extraCards :: Game -> Either Int Game
 extraCards game
@@ -75,11 +71,11 @@ extraCards game
    sets = length (solve (tableau game))
 
 hint :: Game -> IO (Maybe Card)
-hint Game { tableau } = do
-  tableau' <- shuffleIO tableau
+hint game = do
+  tableau' <- shuffleIO (tableau game)
   case solve tableau' of
     ((a,_,_):_) -> return (Just a)
     _ -> return Nothing
 
 sortTableau :: (Card -> Card -> Ordering) -> Game -> Game
-sortTableau f game = game { tableau = sortBy f (tableau game) }
+sortTableau f (Game t d) = Game (sortBy f t) d
