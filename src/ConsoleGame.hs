@@ -27,7 +27,7 @@ run s game = do
   cmd <- handleInput s
   case cmd of
     Deal	-> checkNoSets s game
-    DeleteLast	-> run (initSelection s) game
+    DeleteLast	-> run (initSelection (clearMessage s)) game
     Hint	-> giveHint s game
     Move dir	-> run (updateCur (moveCur dir (length tableauCards)) s) game
     Quit	-> return ()
@@ -37,15 +37,15 @@ select :: InterfaceState -> Game -> IO ()
 select s@(IS _ (CardButton i) cards _) game =
  case index i (tableau game) of
   Just t
-    | t `elem` cards    -> run (deleteSelection t s) game
+    | t `elem` cards    -> run (deleteSelection t (clearMessage s)) game
     | otherwise 	-> addCard t s game
   Nothing		-> run (focusCard 0 s) game
 
 addCard :: Card -> InterfaceState -> Game -> IO ()
 addCard _ s@(IS _ _ [_,_,_] _) = run (setMessage "Selection full" s)
 addCard card0 s@(IS _ _ [card1, card2] _)
- = checkSet (appendSelection card0 s) card0 card1 card2
-addCard card0 s = run (appendSelection card0 s)
+ = checkSet (appendSelection card0 (clearMessage s)) card0 card1 card2
+addCard card0 s = run (appendSelection card0 (clearMessage s))
 
 -- InterfaceState manipulation functions
 clearMessage :: InterfaceState -> InterfaceState
@@ -145,11 +145,6 @@ data InterfaceState = IS Vty CurrentControl [Card] String
 data CurrentControl = CardButton Int
  deriving (Eq)
 
-centerText :: Int -> String -> String
-centerText width xs = replicate ( (width - n) `div` 2 ) ' ' ++ xs
-  where
-  n = length xs
-
 titleString :: String
 titleString = centerText 72 "The game of Set"
 
@@ -161,14 +156,14 @@ interfaceImage cur cards msg selection deckRemaining =
   <->
   vert_cat (map cardRow rows)
   <->
-  string (def_attr `with_style` bold) (if null msg then " " else msg)
-  <->
   string def_attr " "
   <->
   string def_attr ("Cards remaining in deck: ")
-    <|> string (def_attr `with_style` bold) (show deckRemaining)
-  <->
-  string def_attr " "
+    <|> string (def_attr `with_style` bold)
+         (leftPadText 2 (show deckRemaining))
+    <|> string def_attr "    ["
+    <|> string (def_attr `with_style` bold) (rightPadText 38 msg)
+    <|> string def_attr "]"
   <->
   string def_attr "Current Selection"
   <->
@@ -179,10 +174,10 @@ interfaceImage cur cards msg selection deckRemaining =
   cardRow = horiz_cat . map cardimage
 
 cardimage :: (Bool, Card ) -> Image
-cardimage (focused,c) = char_fill fill_attr ' ' 1 (4 :: Int)
-               <|> (vert_cat (map (Vty.string attr) xs))
-               <|> char_fill fill_attr ' ' 1 (4 :: Int)
-               <-> char_fill def_attr ' ' 16 (1 :: Int)
+cardimage (focused,c) = char_fill fill_attr left_filler 1 (4 :: Int)
+                    <|> (vert_cat (map (Vty.string attr) xs))
+                    <|> char_fill fill_attr right_filler 1 (4 :: Int)
+                    <-> char_fill def_attr ' ' 16 (1 :: Int)
   where
   (card_color, xs) = cardLines c
   vty_color = case card_color of
@@ -190,9 +185,10 @@ cardimage (focused,c) = char_fill fill_attr ' ' 1 (4 :: Int)
     Purple -> cyan
     Green -> green
 
-  fill_attr
-    | focused   = def_attr `with_back_color` yellow
-    | otherwise = def_attr
+  (fill_attr, left_filler, right_filler)
+    | focused   = (def_attr`with_fore_color`white`with_back_color`yellow,
+                     '▶', '◀')
+    | otherwise = (def_attr, ' ', ' ')
     
   attr = def_attr `with_fore_color` vty_color `with_back_color` black
 
@@ -202,3 +198,14 @@ make_picture img = Picture
  , pic_image = img
  , pic_background = Background ' ' def_attr }
 
+
+centerText :: Int -> String -> String
+centerText width xs = replicate ( (width - n) `div` 2 ) ' ' ++ xs
+  where
+  n = length xs
+
+leftPadText :: Int -> String -> String
+leftPadText n xs = replicate (n - length xs) ' ' ++ xs
+
+rightPadText :: Int -> String -> String
+rightPadText n xs = xs ++ replicate (n - length xs) ' '
