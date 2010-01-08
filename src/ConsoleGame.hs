@@ -155,7 +155,9 @@ titleString = centerText 72 "The game of Set"
 
 interfaceImage :: CurrentControl -> [Card] -> String -> [Card] -> Int -> Image
 interfaceImage cur cards msg selection deckRemaining =
-  string def_attr titleString
+  string (def_attr `with_style` bold) titleString
+  <->
+  string def_attr ("(D)eal, (H)int, (Q)uit, Arrows move, Return selects, Backspace unselects")
   <->
   vert_cat (map cardRow rows)
   <->
