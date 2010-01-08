@@ -43,7 +43,7 @@ select s game = case currentControl s of
 
 addCard :: Card -> InterfaceState -> Game -> IO ()
 addCard card0 s = case currentSelection s of
-  [_,_,_]        -> run (setMessage "Selection full" s)
+  (_:_:_:_)      -> run (setMessage "Selection full" s)
   [card1, card2] -> checkSet (appendSelection card0 (clearMessage s))
                              card0 card1 card2
   _              -> run (appendSelection card0 (clearMessage s))
@@ -55,6 +55,13 @@ currentSelection (IS _ _ cards _) = cards
 currentControl :: InterfaceState -> CurrentControl
 currentControl (IS _ cur _ _) = cur
 
+updateCur :: (CurrentControl -> CurrentControl)
+          -> InterfaceState -> InterfaceState
+updateCur f (IS vty cur cards msg) = IS vty (f cur) cards msg
+
+interface_vty :: InterfaceState -> Vty
+interface_vty (IS vty _ _ _) = vty
+
 clearMessage :: InterfaceState -> InterfaceState
 clearMessage = setMessage ""
 
@@ -64,25 +71,20 @@ setMessage msg (IS vty cur sel _) = IS vty cur sel msg
 focusCard :: Int -> InterfaceState -> InterfaceState
 focusCard n (IS vty _ cards msg) = IS vty (CardButton n) cards msg
 
+updateSelection :: ([Card] -> [Card]) -> InterfaceState -> InterfaceState
+updateSelection f (IS vty cur cards msg) = IS vty cur (f cards) msg
+
 appendSelection :: Card -> InterfaceState -> InterfaceState
-appendSelection card (IS vty cur cards msg) = IS vty cur (cards ++ [card]) msg
-
-clearSelection :: InterfaceState -> InterfaceState
-clearSelection (IS vty cur _ msg) = IS vty cur [] msg
-
-deleteSelection :: Card -> InterfaceState -> InterfaceState
-deleteSelection card (IS vty cur cards msg) = IS vty cur (delete card cards) msg
+appendSelection card = updateSelection (++ [card])
 
 initSelection :: InterfaceState -> InterfaceState
-initSelection s@(IS _ _ [] _) = s
-initSelection (IS vty cur cards msg) = IS vty cur (init cards) msg
+initSelection = updateSelection init'
 
-updateCur :: (CurrentControl -> CurrentControl)
-          -> InterfaceState -> InterfaceState
-updateCur f (IS vty cur cards msg) = IS vty (f cur) cards msg
+clearSelection :: InterfaceState -> InterfaceState
+clearSelection = updateSelection (const [])
 
-interface_vty :: InterfaceState -> Vty
-interface_vty (IS vty _ _ _) = vty
+deleteSelection :: Card -> InterfaceState -> InterfaceState
+deleteSelection card = updateSelection (delete card)
 
 -- Input loop and types
 
@@ -159,7 +161,7 @@ titleString = centerText 72 "The game of Set"
 
 helpString :: String
 helpString = 
-    "(D)eal, (H)int, (Q)uit, Arrows move, Return selects, Backspace unselects" 
+    "(D)eal, (H)int, (Q)uit, Arrows move, Return selects, Backspace unselects"
 
 interfaceImage :: CurrentControl -> [Card] -> String -> [Card] -> Int -> Image
 interfaceImage cur cards msg selection deckRemaining =
@@ -202,7 +204,7 @@ cardimage (focused,c) = char_fill fill_attr left_filler 1 (4 :: Int)
     | focused   = (def_attr`with_fore_color`white`with_back_color`yellow,
                      '▶', '◀')
     | otherwise = (def_attr, ' ', ' ')
-    
+
   attr = def_attr `with_fore_color` vty_color `with_back_color` black
 
 make_picture :: Image -> Picture
@@ -223,3 +225,6 @@ leftPadText n xs = replicate (n - length xs) ' ' ++ xs
 
 rightPadText :: Int -> String -> String
 rightPadText n xs = xs ++ replicate (n - length xs) ' '
+
+init' [] = []
+init' xs = init xs
