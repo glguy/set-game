@@ -190,7 +190,7 @@ cardimage :: (Bool, Card ) -> Image
 cardimage (focused,c) = char_fill fill_attr left_filler 1 (4 :: Int)
                     <|> (vert_cat (map (Vty.string attr) xs))
                     <|> char_fill fill_attr right_filler 1 (4 :: Int)
-                    <-> char_fill def_attr ' ' 16 (1 :: Int)
+                    <-> char_fill def_attr ' ' 18 (1 :: Int)
   where
   (card_color, xs) = cardLines c
   vty_color = case card_color of
