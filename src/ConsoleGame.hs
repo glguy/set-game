@@ -1,171 +1,184 @@
-{-# LANGUAGE ImplicitParams #-}
-{-# LANGUAGE NamedFieldPuns #-}
 module Main where
 
 import Control.Applicative              ((<$),(<$>), Applicative(..),(<*))
 import Control.Monad                    (ap, liftM2)
 import Data.Char                        (isSpace)
 import Data.Ord                         (comparing)
+import Data.List                        (delete)
 import Data.Monoid                      (mconcat)
-import System.Console.Editline.Readline (readline, addHistory)
-import Text.ParserCombinators.ReadP
-        (ReadP, readP_to_S, readS_to_P, choice, munch1, skipSpaces,
-         string, eof, sepBy1)
-import qualified System.Console.Terminfo as TI
+import Graphics.Vty as Vty
   
 import Set.Ascii
 import Set.Card
 import Set.GameLogic
-import Set.Utils
+import Set.Utils hiding (select)
 
 main :: IO ()
 main = do
-  term <- TI.setupTermFromEnv
+  vty <- mkVty
   game <- newGame
-  let ?term = term
-  run game
+  run (IS vty (CardButton 0) [] "") game
+  shutdown vty
 
-data Command = Deal | SelectSet Int Int Int | Hint | Shuffle | Help | Example
-             | Sort (Card -> Card -> Ordering)
+make_picture img = Picture
+ { pic_cursor = NoCursor
+ , pic_image = img
+ , pic_background = Background ' ' def_attr }
 
 emptyGame :: Game -> Bool
 emptyGame game = null (tableau game) && deckNull game
 
-run :: (?term :: TI.Terminal) => Game -> IO ()
-run game | emptyGame game = putStrLn "No card left; Game over!"
-run game = do
+run :: InterfaceState -> Game -> IO ()
+run s game | emptyGame game = return ()
+run s game = do
   let tableauCards = tableau game
-  printGame tableauCards (deckSize game)
+  printGame s tableauCards (deckSize game)
 
-  sel <- prompt "Selection: "
-  case sel of
-    Nothing                     -> return ()
-    Just Deal                   -> checkNoSets game
-    Just Hint                   -> giveHint game >> run game
-    Just Help                   -> help >> run game
-    Just Shuffle                -> run =<< shuffleTableau game
-    Just Example                -> example >> run game
-    Just (SelectSet a b c)      -> checkSet a b c tableauCards game
-    Just (Sort f)		-> run (sortTableau f game)
+  cmd <- handleInput s
+  case cmd of
+    Deal	-> checkNoSets s game
+    DeleteLast	-> run (initSelection s) game
+    Hint	-> giveHint s game
+    Move dir	-> run (updateCur (moveCur dir (length tableauCards)) s) game
+    Quit	-> return ()
+    Select	-> select s game
 
-printGame :: (?term::TI.Terminal) => [Card] -> Int -> IO ()
-printGame cards n = do
-  putStrLn ("Cards remaining in deck: " ++ show n)
-  putStr (renderTableau cards)
+select s@(IS vty (CardButton i) cards msg) game =
+ case index i (tableau game) of
+  Just t
+    | t `elem` cards    -> run (deleteSelection t s) game
+    | otherwise 	-> addCard t s game
+  Nothing		-> run (focusCard 0 s) game
 
-example :: (?term :: TI.Terminal) => IO ()
-example = do
+focusCard n (IS vty _ cards msg) = IS vty (CardButton n) cards msg
+appendSelection card (IS vty cur cards msg) = IS vty cur (cards ++ [card]) msg
+clearSelection (IS vty cur _ msg) = IS vty cur [] msg
+deleteSelection card (IS vty cur cards msg) = IS vty cur (delete card cards) msg
+initSelection s@(IS _ _ [] _) = s
+initSelection (IS vty cur cards msg) = IS vty cur (init cards) msg
+
+addCard _ s@(IS _ _ [_,_,_] _) game = run (setMessage "Selection full" s) game
+addCard card0 s@(IS _ _ [card1, card2] _) game
+ = checkSet (appendSelection card0 s) card0 card1 card2 game
+addCard card0 s game
+ = run (appendSelection card0 s) game
+
+updateCur f (IS vty cur cards msg) = IS vty (f cur) cards msg
+
+data Command = Move Direction | Select | Quit | Deal | DeleteLast | Hint
+data Direction = GoUp | GoDown | GoLeft | GoRight
+
+handleInput s@(IS vty _ _ _) = do
+ ev <- next_event vty
+ case ev of
+   EvKey KBS [] -> return DeleteLast
+   EvKey KUp [] -> return (Move GoUp)
+   EvKey KDown [] -> return (Move GoDown)
+   EvKey KLeft [] -> return (Move GoLeft)
+   EvKey KRight [] -> return (Move GoRight)
+   EvKey KEnter [] -> return Select
+   EvKey (KASCII 'd') [] -> return Deal
+   EvKey (KASCII 'h') [] -> return Hint
+   EvKey (KASCII 'q') [] -> return Quit
+   _ -> handleInput s
+
+moveCur dir n (CardButton c) = correct $ case dir of
+  GoUp -> c - width
+  GoDown -> c + width
+  GoLeft -> c - 1
+  GoRight -> c + 1
+ where
+ width = 4
+ correct i = CardButton (i `mod` n)
+
+printGame :: InterfaceState -> [Card] -> Int -> IO ()
+printGame (IS vty cur selection msg) tab n = do
+  update vty (make_picture (interfaceImage cur tab msg selection n))
+
+example =
   let xs = liftM2 (,) [Red,Purple,Green] [One,Two,Three]
       ys = liftM2 (,) [Diamond, Squiggle, Oval] [Solid, Striped, Open]
       cards = zipWith (\ (col,cou) (shap, shad) -> Card col cou shad shap) xs ys
-  putStr $ renderTableau cards
-  putStrLn "Press enter to continue."
-  _ <- getLine
-  return ()
-
-help :: (?term :: TI.Terminal) => IO ()
-help = do
-  putStrLn "# # #     Choose a set"
-  putStrLn "deal      Check for sets and deal three more cards if none"
-  putStrLn "example   Show example cards of every characteristic"
-  putStrLn "help      This menu"
-  putStrLn "hint      Show one of the cards that fits in a set"
-  putStrLn "shuffle   Shuffle the current tableau"
-  putStrLn ""
-  putStrLn "Press enter to continue."
-  _ <- getLine
-  return ()
+  in ()
 
 
-giveHint :: (?term::TI.Terminal) => Game -> IO ()
-giveHint game = do
+giveHint :: InterfaceState -> Game -> IO ()
+giveHint s game = do
   mbHint <- hint game
   case mbHint of
-    Just a      -> do putStrLn "There is a set using this card."
-                      putStrLn $ unlines $ renderCard a
-
-    _           -> do putStrLn "No solutions"
+    Just a -> run (setMessage "There is a set using this card."
+                  . appendSelection a
+                  . clearSelection
+                  $ s) game
+    Nothing -> run (setMessage "No sets in this tableau, deal more cards." s)
+                   game
 
 -- | 'checkSet' will extract the chosen set from the tableau and check it
 --   for validity. If a valid set is removed from the tableau the tableau
 --   will be refilled up to 12 cards.
-checkSet :: (?term :: TI.Terminal)
-         => Int    -- ^ Index of first card in set
-         -> Int    -- ^ Index of second card in set
-         -> Int    -- ^ Index of third card in set
-         -> [Card]
+checkSet :: InterfaceState
+         -> Card
+         -> Card
+         -> Card
          -> Game 
          -> IO ()
-checkSet a b c cards game
-  | uniques [a,b,c] = case mbCards of
-      Just (card0, card1, card2) ->
-         let row = renderCardRow [card0, card1, card2]
-         in case considerSet card0 card1 card2 game of
-             Nothing    -> putStrLn (row ++ "Not a set.") >> run game
-             Just game' -> putStrLn (row ++ "Good job.")  >> run game'
-         
-      Nothing -> putStrLn "Invalid selection."  >> run game
-  | otherwise = putStrLn "Duplicate selection."  >> run game
+checkSet s a b c game = run (f_s s) game'
   where
-  mbCards = (,,) <$> index (a-1) cards
-                 <*> index (b-1) cards
-                 <*> index (c-1) cards
+  (f_s,game') = case considerSet a b c game of
+    Nothing -> (setMessage "Not a set.", game)
+    Just game' -> (setMessage "Good job." .  clearSelection, game')
 
-checkNoSets :: (?term :: TI.Terminal) => Game -> IO ()
-checkNoSets game = case extraCards game of
-  Right game' -> run game'
-  Left 0 -> putStrLn "Game over!"
+checkNoSets :: InterfaceState -> Game -> IO ()
+checkNoSets s game = case extraCards game of
+  Right game' -> run (setMessage "Dealing more cards" s) game'
+  Left 0 -> return ()
   Left sets -> do
-       putStrLn $ "Oops, " ++ show sets ++ " sets in tableau. Keep looking."
-       run game
+       let msg = "Oops, " ++ show sets ++ " sets in tableau. Keep looking."
+       run (setMessage msg s) game
 
--- | 'prompt' wraps 'readline' with a 'Read' parser and repeats the prompt
---   on a failed parse.
-prompt :: Read a => String -> IO (Maybe a)
-prompt p = parseLn =<< readline p
+data InterfaceState = IS Vty CurrentControl [Card] String
+data CurrentControl = CardButton Int
+ deriving (Eq)
+
+interfaceImage cur cards msg selection deckRemaining =
+  string def_attr "The game of Set"
+  <->
+  vert_cat (map (cardRow cur) rows)
+  <->
+  string (def_attr `with_style` bold) (if null msg then " " else msg)
+  <->
+  string def_attr " "
+  <->
+  string def_attr ("Cards remaining in deck: ")
+    <|> string (def_attr `with_style` bold) (show deckRemaining)
+  <->
+  string def_attr " "
+  <->
+  string def_attr "Current Selection"
+  <->
+  cardRow cur (map ((,) (-1)) selection)
   where
-  parseLn Nothing = return Nothing
-  parseLn (Just ln) = do
-    addHistory ln
-    case reads ln of
-      [(x,_)] -> return (Just x)
-      _ -> do putStrLn "Bad input"
-              prompt p
+  rows = groups 4 (zip [0..] cards)
 
-instance Read Command where
-  readsPrec _ = readP_to_S commandP
+cardRow cur row = horiz_cat (map (cardimage cur) row)
 
-commandP :: ReadP Command
-commandP = skipSpaces
-        *> choice [Hint      <$  string "hint"
-                  ,Deal      <$  string "deal"
-                  ,Shuffle   <$  string "shuffle"
-                  ,Help      <$  string "help"
-                  ,Example   <$  string "example"
-                  ,Sort      <$> sortP
-                  ,selectSetP]
-        <* skipSpaces
-        <* eof
-
-selectSetP :: ReadP Command
-selectSetP = SelectSet <$> intP <*> (skipSpaces *> intP)
-                                <*> (skipSpaces *> intP)
-
-intP :: ReadP Int
-intP = readS_to_P reads
-
-sortP :: ReadP (Card -> Card -> Ordering)
-sortP = string "sort" *> skipSpaces1
-     *> (mconcat <$> sepBy1 ordP skipSpaces1)
+cardimage :: CurrentControl -> (Int, Card ) -> Image
+cardimage cur (i,c) = char_fill fill_attr ' ' 1 4
+               <|> (vert_cat (map (Vty.string attr) xs))
+               <|> char_fill fill_attr ' ' 1 4
+               <-> char_fill def_attr ' ' 16 1
   where
-    ordP = choice [comparing color   <$ string "color"
-                  ,comparing count   <$ string "count"
-                  ,comparing shading <$ string "shading"
-                  ,comparing symbol  <$ string "symbol"]
+  (color, xs) = cardLines c
+  vty_color = case color of
+    Red -> red
+    Purple -> cyan
+    Green -> green
 
-skipSpaces1 :: ReadP ()
-skipSpaces1 = () <$ munch1 isSpace
+  fill_attr
+    | cur == CardButton i = def_attr `with_back_color` yellow
+    | otherwise = def_attr
+    
+  attr = def_attr `with_fore_color` vty_color `with_back_color` black
 
-instance Applicative ReadP where
- (<*>) = ap
- pure = return
+clearMessage = setMessage ""
+setMessage msg (IS vty cur sel _) = IS vty cur sel msg

@@ -1,7 +1,7 @@
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
-module Set.Ascii (renderTableau, renderCardRow, renderCard) where
+module Set.Ascii (renderTableau, renderCardRow, renderCard, cardLines) where
 
 import Data.List                        (transpose)
 import qualified System.Console.Terminfo as TI
@@ -101,3 +101,7 @@ selectArt Solid   Oval     = [" __ "
                              ,"╱╳╳╲"
                              ,"╲╳╳╱"
                              ," ‾‾ "]
+
+cardLines :: Card -> (Color, [String])
+cardLines Card {color, count, shading, symbol}
+  = (color, map (duplicate count) (selectArt shading symbol))
