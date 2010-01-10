@@ -2,6 +2,7 @@ module Main where
 
 import Data.List                        (delete)
 import Graphics.Vty as Vty
+import System.Random (newStdGen, StdGen)
   
 import Set.Ascii
 import Set.Card (Card, Color(Red,Purple,Green))
@@ -12,69 +13,72 @@ main :: IO ()
 main = do
   vty <- mkVty
   game <- newGame
-  run game $ newInterfaceState vty
+  g <- newStdGen
+  run vty game $ newInterfaceState g
   shutdown vty
 
 emptyGame :: Game -> Bool
 emptyGame game = null (tableau game) && deckNull game
 
-run :: Game -> InterfaceState -> IO ()
-run game _ | emptyGame game = return ()
-run game s = do
-  printGame game s
+run :: Vty -> Game -> InterfaceState -> IO ()
+run _ game _ | emptyGame game = return ()
+run vty game s = do
+  printGame vty game s
 
-  cmd <- handleInput s
-  case cmd of
-    Deal        -> checkNoSets game s
-    DeleteLast  -> run game . initSelection
-                            . clearMessage
-                            $ s 
-    Hint        -> giveHint s game
-    Move dir    -> let f = moveCur dir (length (tableau game))
-                   in run game (updateControl f s)
-    Quit        -> return ()
-    Select      -> select game s
+  cmd <- handleInput vty
+  let simple f = Just (game, f s)
+  let res = case cmd of
+        Deal        -> checkNoSets game s
+        DeleteLast  -> simple $ initSelection
+                              . clearMessage
+        Hint        -> simple $ giveHint game
+        Move dir    -> simple $ updateControl $ moveCur dir $ length
+                              $ tableau game
+        Quit        -> Nothing
+        Select      -> Just (select game s)
+  case res of
+    Nothing -> return ()
+    Just (game', s') -> run vty game' s'
 
-select :: Game -> InterfaceState -> IO ()
+select :: Game -> InterfaceState -> (Game, InterfaceState)
 select game s = case iControl s of
  CardButton i ->
   case index i (tableau game) of
-   Just t | isSelected t s -> run game . updateSelection (delete t)
-                                       . clearMessage
-                                       $ s
+   Just t | isSelected t s -> (game, updateSelection (delete t)
+                                   . clearMessage
+                                   $ s)
           | otherwise    -> addCard t game s
-   Nothing               -> run game (setControl (CardButton 0) s)
+   Nothing               -> (game, setControl (CardButton 0) s)
 
-addCard :: Card -> Game -> InterfaceState -> IO ()
+addCard :: Card -> Game -> InterfaceState -> (Game, InterfaceState)
 addCard card0 game s = case iSelection s of
-  (_:_:_:_)      -> run game . setMessage "Selection full"
-                             $ s
+  (_:_:_:_)      -> (game, setMessage "Selection full" s)
   [card1, card2] -> checkSet card0 card1 card2 game . appendSelection card0 
                                                     . clearMessage
                                                     $ s
-  _              -> run game . appendSelection card0 
-                             . clearMessage
-                             $ s
+  _              -> (game, appendSelection card0 
+                         . clearMessage
+                         $ s)
 
 -- InterfaceState manipulation functions
 
 data InterfaceState = IS
-  { iVty :: Vty
-  , iControl :: CurrentControl
+  { iControl :: CurrentControl
   , iSelection :: [Card]
   , iMessage :: String
   , iDealCounter :: Int
   , iBadDealCounter :: Int
+  , iStdGen :: StdGen
   }
 
-newInterfaceState :: Vty -> InterfaceState
-newInterfaceState vty = IS
-  { iVty = vty
-  , iControl = CardButton 0
+newInterfaceState :: StdGen -> InterfaceState
+newInterfaceState g = IS
+  { iControl = CardButton 0
   , iSelection = []
   , iMessage = ""
   , iDealCounter = 0
   , iBadDealCounter = 0
+  , iStdGen = g
   }
 
 data CurrentControl = CardButton Int
@@ -117,14 +121,17 @@ clearSelection = updateSelection (const [])
 isSelected :: Card -> InterfaceState -> Bool
 isSelected x i = x `elem` iSelection i
 
+setGen :: StdGen -> InterfaceState -> InterfaceState
+setGen g i = i { iStdGen = g }
+
 -- Input loop and types
 
 data Command = Move Direction | Select | Quit | Deal | DeleteLast | Hint
 data Direction = GoUp | GoDown | GoLeft | GoRight
 
-handleInput :: InterfaceState -> IO Command
-handleInput s = do
- ev <- next_event (iVty s)
+handleInput :: Vty -> IO Command
+handleInput vty = do
+ ev <- next_event vty
  case ev of
    EvKey KBS [] -> return DeleteLast
    EvKey KUp [] -> return (Move GoUp)
@@ -135,7 +142,7 @@ handleInput s = do
    EvKey (KASCII 'd') [] -> return Deal
    EvKey (KASCII 'h') [] -> return Hint
    EvKey (KASCII 'q') [] -> return Quit
-   _ -> handleInput s
+   _ -> handleInput vty
 
 moveCur :: Direction -> Int -> CurrentControl -> CurrentControl
 moveCur dir n (CardButton c) = correct $ case dir of
@@ -147,39 +154,40 @@ moveCur dir n (CardButton c) = correct $ case dir of
  width = 4
  correct i = CardButton (i `mod` n)
 
-printGame :: Game -> InterfaceState -> IO ()
-printGame game s = update (iVty s) 
+printGame :: Vty -> Game -> InterfaceState -> IO ()
+printGame vty game s = update vty 
                  $ make_picture
                  $ interfaceImage game s
 
-giveHint :: InterfaceState -> Game -> IO ()
-giveHint s game = do
-  mbHint <- hint game
-  case mbHint of
+giveHint :: Game -> InterfaceState -> InterfaceState
+giveHint game s =
+  let (mbHint, g) = hint (iStdGen s) game
+  in case mbHint of
     Just a -> let hintmsg = "There is a set using this card."
-              in run game . setMessage hintmsg
-                          . setSelection [a]
-                          $ s
+              in setGen g . setMessage hintmsg . setSelection [a] $ s
     Nothing -> let dealmsg = "No sets in this tableau, deal more cards." 
-               in run game $ setMessage dealmsg s
+               in setGen g . setMessage dealmsg $ s
 
 -- | 'checkSet' will extract the chosen set from the tableau and check it
 --   for validity. If a valid set is removed from the tableau the tableau
 --   will be refilled up to 12 cards.
-checkSet :: Card -> Card -> Card -> Game -> InterfaceState -> IO ()
-checkSet a b c game s = run game' . f_s
+checkSet :: Card -> Card -> Card -> Game -> InterfaceState
+         -> (Game, InterfaceState)
+checkSet a b c game s = (game', f_s s)
   where
   (f_s,game') = case considerSet a b c game of
     Nothing -> (setMessage "Not a set.", game)
     Just game1 -> (setMessage "Good job." . clearSelection, game1)
 
-checkNoSets :: Game -> InterfaceState -> IO ()
-checkNoSets game = case extraCards game of
-  Right game' -> run game' . incDealCounter
-                           . setMessage "Dealing more cards."
-  Left 0 -> const (return ()) -- game over
-  Left sets -> run game . incBadDealCounter
-                        . setMessage msg
+checkNoSets :: Game -> InterfaceState -> Maybe (Game, InterfaceState)
+checkNoSets game s = case extraCards game of
+  Right game' -> Just (game', incDealCounter
+                            . setMessage "Dealing more cards."
+                            $ s)
+  Left 0 -> Nothing
+  Left sets -> Just (game, incBadDealCounter
+                         . setMessage msg
+                         $ s)
     where
        msg = "Oops, " ++ show sets ++ " sets in tableau. Keep looking."
 

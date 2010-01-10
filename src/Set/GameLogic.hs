@@ -20,6 +20,7 @@ module Set.GameLogic (
   ) where
 
 import Control.Monad (guard)
+import System.Random (RandomGen)
 
 import Set.Card
 import Set.Utils
@@ -70,12 +71,12 @@ extraCards game
   where
    sets = length (solve (tableau game))
 
-hint :: Game -> IO (Maybe Card)
-hint game = do
-  tableau' <- shuffleIO (tableau game)
-  case solve tableau' of
-    ((a,_,_):_) -> return (Just a)
-    _ -> return Nothing
+hint :: RandomGen g => g -> Game -> (Maybe Card, g)
+hint g game =
+  let (tableau', g') = shuffle (tableau game) g
+  in case solve tableau' of
+      ((a,_,_):_) -> (Just a, g')
+      _ -> (Nothing, g')
 
 sortTableau :: (Card -> Card -> Ordering) -> Game -> Game
 sortTableau f (Game t d) = Game (sortBy f t) d
