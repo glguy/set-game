@@ -12,7 +12,7 @@ main :: IO ()
 main = do
   vty <- mkVty
   game <- newGame
-  run game $ IS vty (CardButton 0) [] ""
+  run game $ newInterfaceState vty
   shutdown vty
 
 emptyGame :: Game -> Bool
@@ -21,11 +21,11 @@ emptyGame game = null (tableau game) && deckNull game
 run :: Game -> InterfaceState -> IO ()
 run game _ | emptyGame game = return ()
 run game s = do
-  printGame s game
+  printGame game s
 
   cmd <- handleInput s
   case cmd of
-    Deal        -> checkNoSets s game
+    Deal        -> checkNoSets game s
     DeleteLast  -> run game . initSelection
                             . clearMessage
                             $ s 
@@ -33,23 +33,25 @@ run game s = do
     Move dir    -> let f = moveCur dir (length (tableau game))
                    in run game (updateControl f s)
     Quit        -> return ()
-    Select      -> select s game
+    Select      -> select game s
 
-select :: InterfaceState -> Game -> IO ()
-select s game = case iControl s of
+select :: Game -> InterfaceState -> IO ()
+select game s = case iControl s of
  CardButton i ->
   case index i (tableau game) of
-   Just t | t `elem` iSelection s -> run game . updateSelection (delete t)
-                                              . clearMessage
-                                              $ s
-          | otherwise    -> addCard t s game
+   Just t | isSelected t s -> run game . updateSelection (delete t)
+                                       . clearMessage
+                                       $ s
+          | otherwise    -> addCard t game s
    Nothing               -> run game (setControl (CardButton 0) s)
 
-addCard :: Card -> InterfaceState -> Game -> IO ()
-addCard card0 s game = case iSelection s of
-  (_:_:_:_)      -> run game (setMessage "Selection full" s)
-  [card1, card2] -> checkSet (appendSelection card0 (clearMessage s))
-                             card0 card1 card2 game
+addCard :: Card -> Game -> InterfaceState -> IO ()
+addCard card0 game s = case iSelection s of
+  (_:_:_:_)      -> run game . setMessage "Selection full"
+                             $ s
+  [card1, card2] -> checkSet card0 card1 card2 game . appendSelection card0 
+                                                    . clearMessage
+                                                    $ s
   _              -> run game . appendSelection card0 
                              . clearMessage
                              $ s
@@ -61,10 +63,28 @@ data InterfaceState = IS
   , iControl :: CurrentControl
   , iSelection :: [Card]
   , iMessage :: String
+  , iDealCounter :: Int
+  , iBadDealCounter :: Int
+  }
+
+newInterfaceState :: Vty -> InterfaceState
+newInterfaceState vty = IS
+  { iVty = vty
+  , iControl = CardButton 0
+  , iSelection = []
+  , iMessage = ""
+  , iDealCounter = 0
+  , iBadDealCounter = 0
   }
 
 data CurrentControl = CardButton Int
  deriving (Eq)
+
+incDealCounter :: InterfaceState -> InterfaceState
+incDealCounter i = i { iDealCounter = iDealCounter i + 1 }
+
+incBadDealCounter :: InterfaceState -> InterfaceState
+incBadDealCounter i = i { iBadDealCounter = iBadDealCounter i + 1 }
 
 setControl :: CurrentControl -> InterfaceState -> InterfaceState
 setControl x i = i { iControl = x }
@@ -93,6 +113,9 @@ initSelection = updateSelection init'
 
 clearSelection :: InterfaceState -> InterfaceState
 clearSelection = updateSelection (const [])
+
+isSelected :: Card -> InterfaceState -> Bool
+isSelected x i = x `elem` iSelection i
 
 -- Input loop and types
 
@@ -124,12 +147,10 @@ moveCur dir n (CardButton c) = correct $ case dir of
  width = 4
  correct i = CardButton (i `mod` n)
 
-printGame :: InterfaceState -> Game -> IO ()
-printGame (IS vty cur selection msg) game = do
-  update vty (make_picture (interfaceImage cur tab msg selection n))
-  where
-  n = deckSize game
-  tab = tableau game
+printGame :: Game -> InterfaceState -> IO ()
+printGame game s = update (iVty s) 
+                 $ make_picture
+                 $ interfaceImage game s
 
 giveHint :: InterfaceState -> Game -> IO ()
 giveHint s game = do
@@ -145,18 +166,20 @@ giveHint s game = do
 -- | 'checkSet' will extract the chosen set from the tableau and check it
 --   for validity. If a valid set is removed from the tableau the tableau
 --   will be refilled up to 12 cards.
-checkSet :: InterfaceState -> Card -> Card -> Card -> Game -> IO ()
-checkSet s a b c game = run game' (f_s s)
+checkSet :: Card -> Card -> Card -> Game -> InterfaceState -> IO ()
+checkSet a b c game s = run game' . f_s
   where
   (f_s,game') = case considerSet a b c game of
     Nothing -> (setMessage "Not a set.", game)
     Just game1 -> (setMessage "Good job." . clearSelection, game1)
 
-checkNoSets :: InterfaceState -> Game -> IO ()
-checkNoSets s game = case extraCards game of
-  Right game' -> run game' $ setMessage "Dealing more cards." s
-  Left 0 -> return ()
-  Left sets -> run game $ setMessage msg s
+checkNoSets :: Game -> InterfaceState -> IO ()
+checkNoSets game = case extraCards game of
+  Right game' -> run game' . incDealCounter
+                           . setMessage "Dealing more cards."
+  Left 0 -> const (return ()) -- game over
+  Left sets -> run game . incBadDealCounter
+                        . setMessage msg
     where
        msg = "Oops, " ++ show sets ++ " sets in tableau. Keep looking."
 
@@ -167,37 +190,42 @@ helpString :: String
 helpString = 
     "(D)eal, (H)int, (Q)uit, Arrows move, Return selects, Backspace unselects"
 
-interfaceImage :: CurrentControl -> [Card] -> String -> [Card] -> Int -> Image
-interfaceImage cur cards msg selection deckRemaining =
-  string (def_attr `with_style` bold) titleString
+interfaceImage :: Game -> InterfaceState -> Image
+interfaceImage game s =
+  boldString titleString
   <->
-  string def_attr helpString
+  plainString helpString
   <->
   vert_cat (map cardRow rows)
   <->
-  string def_attr " "
+  plainString "Cards remaining in deck: "
+    <|> boldString  (leftPadText 2 (show (deckSize game)))
+    <|> plainString "    ["
+    <|> boldString  (rightPadText 38 (iMessage s))
+    <|> plainString "]"
   <->
-  string def_attr ("Cards remaining in deck: ")
-    <|> string (def_attr `with_style` bold)
-         (leftPadText 2 (show deckRemaining))
-    <|> string def_attr "    ["
-    <|> string (def_attr `with_style` bold) (rightPadText 38 msg)
-    <|> string def_attr "]"
+  plainString "Extra deal count: "
+    <|> boldString  (show (iDealCounter s))
+    <|> plainString "/"
+    <|> boldString  (show (iDealCounter s + iBadDealCounter s))
   <->
-  string def_attr "Current Selection"
+  plainString "Current Selection"
   <->
-  cardRow (map ((,) False) selection)
+  cardRow (map ((,,) False False) (iSelection s))
   where
-  rows = groups 4 (zipWith testFocus [0..] cards)
-  testFocus i c = (cur == CardButton i , c)
+  plainString = string def_attr
+  boldString = string (def_attr `with_style` bold)
+  rows = groups 4 (zipWith testFocus [0..] (tableau game))
+  testFocus i c = (iControl s == CardButton i, isSelected c s, c)
   cardRow = horiz_cat . map cardimage
 
-cardimage :: (Bool, Card ) -> Image
-cardimage (focused,c) = char_fill fill_attr left_filler 1 (4 :: Int)
-                    <|> (vert_cat (map (Vty.string attr) xs))
-                    <|> char_fill fill_attr right_filler 1 (4 :: Int)
-                    <-> char_fill def_attr ' ' 18 (1 :: Int)
-  where
+cardimage :: (Bool, Bool, Card) -> Image
+cardimage (focused,selected,c)
+     = char_fill fill_attr left_filler 1 (4 :: Int)
+   <|> (vert_cat (map (Vty.string card_attr) xs))
+   <|> char_fill fill_attr right_filler 1 (4 :: Int)
+   <-> char_fill def_attr ' ' 18 (1 :: Int)
+ where
   (card_color, xs) = cardLines c
   vty_color = case card_color of
     Red -> red
@@ -208,8 +236,11 @@ cardimage (focused,c) = char_fill fill_attr left_filler 1 (4 :: Int)
     | focused   = (def_attr`with_fore_color`white`with_back_color`yellow,
                      '▶', '◀')
     | otherwise = (def_attr, ' ', ' ')
+  card_attr
+    | selected = base_card_attr `with_style` reverse_video
+    | otherwise = base_card_attr
 
-  attr = def_attr `with_fore_color` vty_color `with_back_color` black
+  base_card_attr = def_attr `with_fore_color` vty_color `with_back_color` black
 
 make_picture :: Image -> Picture
 make_picture img = Picture
