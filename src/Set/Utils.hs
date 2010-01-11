@@ -50,6 +50,11 @@ select3 a b c xs = (x0,x1,x2,xs2)
   dec x y z | x < y     = z - 1
             | otherwise = z
 
+-- | Drop last element of list if there is an element to drop.
+init' :: [a] -> [a]
+init' [] = []
+init' xs = init xs
+
 -------------------------------------------------------------------------------
 -- Other utilities ------------------------------------------------------------
 -------------------------------------------------------------------------------
@@ -63,6 +68,10 @@ chooseTwo :: [a] -> [(a,a)]
 chooseTwo xs = [ (a,b) | (a:as) <- tails xs
                        , b      <- as
                        ]
+
+-- | 'seconds' converts seconds to microseconds for use in 'threadDelay'.
+seconds :: Int -> Int
+seconds x = 1000000 * x
 
 -------------------------------------------------------------------------------
 -- List shuffling utilities ---------------------------------------------------
@@ -90,3 +99,22 @@ getRandom b = do
   (i, g') <- randomR (0,b) `liftM` get
   set g'
   return i
+
+
+-------------------------------------------------------------------------------
+-- Text manipulation utilities ------------------------------------------------
+-------------------------------------------------------------------------------
+
+-- | 'centerText' centers the given string in a field of @width characters.
+centerText :: Int -> String -> String
+centerText width xs = replicate ( (width - n) `div` 2 ) ' ' ++ xs
+  where
+  n = length xs
+
+-- | 'centerText' right-aligns the given string in a field of @width characters.
+leftPadText :: Int -> String -> String
+leftPadText n xs = replicate (n - length xs) ' ' ++ xs
+
+-- | 'centerText' left-aligns the given string in a field of @width characters.
+rightPadText :: Int -> String -> String
+rightPadText n xs = xs ++ replicate (n - length xs) ' '

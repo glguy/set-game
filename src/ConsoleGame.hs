@@ -195,30 +195,34 @@ printGame vty s = do
        printGame vty s'
 
 giveHint :: Game -> Interface -> Interface
-giveHint game s =
-  let (mbHint, g) = hint (iStdGen s) game
-  in case mbHint of
-    Just a -> let hintmsg = "There is a set using this card."
-              in setGen g . setMessage hintmsg . setSelection [a] $ s
-    Nothing -> let dealmsg = "No sets in this tableau, deal more cards."
-               in setGen g . setMessage dealmsg $ s
+giveHint game s = setGen g . f $ s
+  where
+  f = case mbHint of
+        Just a -> setMessage hintmsg . setSelection [a]
+        Nothing -> setMessage dealmsg
+
+  (mbHint, g) = hint (iStdGen s) game
+
+  hintmsg = "There is a set using this card."
+  dealmsg = "No sets in this tableau, deal more cards."
 
 -- | 'checkSet' will extract the chosen set from the tableau and check it
 --   for validity. If a valid set is removed from the tableau the tableau
 --   will be refilled up to 12 cards.
 checkSet :: Card -> Card -> Card -> Game -> Interface
          -> (Game, Interface)
-checkSet a b c game s = (game', f_s s)
-  where
-  (f_s,game') = case considerSet a b c game of
-    Nothing -> (delayedUpdate 250000 (setMessage "Not a set.")
-               . setMessage "Not a set!", game)
-    Just game1 -> ( setMessage "Good job!"
-                  . delayedUpdate (seconds 1)
-                  ( setGame game1
-                  . clearSelection
-                  . setMessage "Good job.")
-                  , game1)
+checkSet a b c game s = case considerSet a b c game of
+  Nothing       -> (game, setMessage "Not a set!"
+                        . delayedUpdate (seconds 1 `div` 4)
+                        ( setMessage "Not a set.")
+                        $ s)
+
+  Just game'    -> (game', setMessage "Good job!"
+                        . delayedUpdate (seconds 1)
+                        ( setGame game1
+                        . clearSelection
+                        . setMessage "Good job.")
+                        $ s)
 
 checkNoSets :: Game -> Interface -> Maybe (Game, Interface)
 checkNoSets game s = case extraCards game of
@@ -233,16 +237,20 @@ checkNoSets game s = case extraCards game of
     where
        msg = "Oops, " ++ show sets ++ " sets in tableau. Keep looking."
 
+-------------------------------------------------------------------------------
+-- Interface rendering functions ----------------------------------------------
+-------------------------------------------------------------------------------
+
 titleString :: String
-titleString = centerText 72 "The game of Set"
+titleString = "The game of Set"
 
 helpString :: String
-helpString =
-    "(D)eal, (H)int, (Q)uit, Arrows move, Return selects, Backspace unselects"
+helpString = "(D)eal, (H)int, (Q)uit, Arrows move, Return selects,\
+             \ Backspace unselects"
 
 interfaceImage :: Interface -> Image
 interfaceImage s =
-  boldString titleString
+  boldString (centerText 72 titleString)
   <->
   plainString helpString
   <->
@@ -293,29 +301,5 @@ cardimage (focused,selected,c)
   base_card_attr = def_attr `with_fore_color` vty_color `with_back_color` black
 
 make_picture :: Image -> Picture
-make_picture img = Picture
- { pic_cursor = NoCursor
- , pic_image = img
- , pic_background = Background ' ' def_attr }
-
--- Text format utilities
-
-centerText :: Int -> String -> String
-centerText width xs = replicate ( (width - n) `div` 2 ) ' ' ++ xs
-  where
-  n = length xs
-
-leftPadText :: Int -> String -> String
-leftPadText n xs = replicate (n - length xs) ' ' ++ xs
-
-rightPadText :: Int -> String -> String
-rightPadText n xs = xs ++ replicate (n - length xs) ' '
-
--- | Drop last element of list if there is an element to drop.
-init' :: [a] -> [a]
-init' [] = []
-init' xs = init xs
-
--- | 'seconds' converts seconds to microseconds for use in 'threadDelay'.
-seconds :: Int -> Int
-seconds x = 1000000 * x
+make_picture img = pic_from_image img
+ { pic_background = Background ' ' def_attr }
