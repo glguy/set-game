@@ -16,6 +16,7 @@ module Set.GameLogic (
         , tableau
         , deckNull
         , deckSize
+        , emptyGame
         , hint
   ) where
 
@@ -80,3 +81,9 @@ hint g game =
 
 sortTableau :: (Card -> Card -> Ordering) -> Game -> Game
 sortTableau f (Game t d) = Game (sortBy f t) d
+
+-- | 'emptyGame' tests for a game with no cards remaining
+--   in either the tableau or the deck.
+emptyGame :: Game -> Bool
+emptyGame game = null (tableau game) && deckNull game
+

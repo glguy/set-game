@@ -20,9 +20,6 @@ main = do
         $ newInterface g
   shutdown vty
 
-emptyGame :: Game -> Bool
-emptyGame game = null (tableau game) && deckNull game
-
 run :: Vty -> Game -> Interface -> IO ()
 run _ game _ | emptyGame game = return ()
 run vty game s = do
