@@ -1,9 +1,10 @@
 module Main where
 
+import Control.Concurrent               (threadDelay)
 import Data.List                        (delete)
 import Graphics.Vty as Vty
 import System.Random (newStdGen, StdGen)
-  
+
 import Set.Ascii
 import Set.Card (Card, Color(Red,Purple,Green))
 import Set.GameLogic
@@ -14,19 +15,21 @@ main = do
   vty <- mkVty
   game <- newGame
   g <- newStdGen
-  run vty game $ newInterfaceState g
+  run vty game
+        $ setGame game
+        $ newInterface g
   shutdown vty
 
 emptyGame :: Game -> Bool
 emptyGame game = null (tableau game) && deckNull game
 
-run :: Vty -> Game -> InterfaceState -> IO ()
+run :: Vty -> Game -> Interface -> IO ()
 run _ game _ | emptyGame game = return ()
 run vty game s = do
-  printGame vty game s
+  s' <- printGame vty s
 
   cmd <- handleInput vty
-  let simple f = Just (game, f s)
+  let simple f = Just (game, f s')
   let res = case cmd of
         Deal        -> checkNoSets game s
         DeleteLast  -> simple $ initSelection
@@ -35,12 +38,12 @@ run vty game s = do
         Move dir    -> simple $ updateControl $ moveCur dir $ length
                               $ tableau game
         Quit        -> Nothing
-        Select      -> Just (select game s)
+        Select      -> Just (select game s')
   case res of
     Nothing -> return ()
-    Just (game', s') -> run vty game' s'
+    Just (game', s'') -> run vty game' s''
 
-select :: Game -> InterfaceState -> (Game, InterfaceState)
+select :: Game -> Interface -> (Game, Interface)
 select game s = case iControl s of
  CardButton i ->
   case index i (tableau game) of
@@ -50,78 +53,105 @@ select game s = case iControl s of
           | otherwise    -> addCard t game s
    Nothing               -> (game, setControl (CardButton 0) s)
 
-addCard :: Card -> Game -> InterfaceState -> (Game, InterfaceState)
+addCard :: Card -> Game -> Interface -> (Game, Interface)
 addCard card0 game s = case iSelection s of
   (_:_:_:_)      -> (game, setMessage "Selection full" s)
-  [card1, card2] -> checkSet card0 card1 card2 game . appendSelection card0 
+  [card1, card2] -> checkSet card0 card1 card2 game . appendSelection card0
                                                     . clearMessage
                                                     $ s
-  _              -> (game, appendSelection card0 
+  _              -> (game, appendSelection card0
                          . clearMessage
                          $ s)
 
--- InterfaceState manipulation functions
+setGame :: Game -> Interface -> Interface
+setGame game = setTableau (tableau game)
+             . setRemaining (deckSize game)
 
-data InterfaceState = IS
+-- Interface manipulation functions
+
+data Interface = IS
   { iControl :: CurrentControl
   , iSelection :: [Card]
   , iMessage :: String
   , iDealCounter :: Int
   , iBadDealCounter :: Int
   , iStdGen :: StdGen
+  , iTimer :: Maybe (Int, Interface)
+  , iTableau :: [Card]
+  , iRemaining :: Int
   }
 
-newInterfaceState :: StdGen -> InterfaceState
-newInterfaceState g = IS
+newInterface :: StdGen -> Interface
+newInterface g = IS
   { iControl = CardButton 0
   , iSelection = []
   , iMessage = ""
   , iDealCounter = 0
   , iBadDealCounter = 0
   , iStdGen = g
+  , iTimer = Nothing
+  , iTableau = []
+  , iRemaining = 0
   }
 
 data CurrentControl = CardButton Int
  deriving (Eq)
 
-incDealCounter :: InterfaceState -> InterfaceState
+setRemaining :: Int -> Interface -> Interface
+setRemaining n s = s { iRemaining = n }
+
+setTableau :: [Card] -> Interface -> Interface
+setTableau xs s = s { iTableau = xs }
+
+setTimer :: Int -> Interface -> Interface -> Interface
+setTimer delay s' s = s { iTimer = Just (delay, s') }
+
+tempUpdate :: Int -> (Interface -> Interface)
+                  -> Interface -> Interface
+tempUpdate delay f s = setTimer delay s (f s)
+
+delayedUpdate :: Int -> (Interface -> Interface)
+              -> Interface -> Interface
+delayedUpdate delay f s = setTimer delay (f s) s
+
+incDealCounter :: Interface -> Interface
 incDealCounter i = i { iDealCounter = iDealCounter i + 1 }
 
-incBadDealCounter :: InterfaceState -> InterfaceState
+incBadDealCounter :: Interface -> Interface
 incBadDealCounter i = i { iBadDealCounter = iBadDealCounter i + 1 }
 
-setControl :: CurrentControl -> InterfaceState -> InterfaceState
+setControl :: CurrentControl -> Interface -> Interface
 setControl x i = i { iControl = x }
 
 updateControl :: (CurrentControl -> CurrentControl)
-              -> InterfaceState -> InterfaceState
+              -> Interface -> Interface
 updateControl f i = setControl (f (iControl i)) i
 
-clearMessage :: InterfaceState -> InterfaceState
+clearMessage :: Interface -> Interface
 clearMessage = setMessage ""
 
-setMessage :: String -> InterfaceState -> InterfaceState
+setMessage :: String -> Interface -> Interface
 setMessage msg i = i { iMessage = msg }
 
-setSelection :: [Card] -> InterfaceState -> InterfaceState
+setSelection :: [Card] -> Interface -> Interface
 setSelection xs i = i { iSelection = xs }
 
-updateSelection :: ([Card] -> [Card]) -> InterfaceState -> InterfaceState
+updateSelection :: ([Card] -> [Card]) -> Interface -> Interface
 updateSelection f i = setSelection (f (iSelection i)) i
 
-appendSelection :: Card -> InterfaceState -> InterfaceState
+appendSelection :: Card -> Interface -> Interface
 appendSelection card = updateSelection (++ [card])
 
-initSelection :: InterfaceState -> InterfaceState
+initSelection :: Interface -> Interface
 initSelection = updateSelection init'
 
-clearSelection :: InterfaceState -> InterfaceState
+clearSelection :: Interface -> Interface
 clearSelection = updateSelection (const [])
 
-isSelected :: Card -> InterfaceState -> Bool
+isSelected :: Card -> Interface -> Bool
 isSelected x i = x `elem` iSelection i
 
-setGen :: StdGen -> InterfaceState -> InterfaceState
+setGen :: StdGen -> Interface -> Interface
 setGen g i = i { iStdGen = g }
 
 -- Input loop and types
@@ -154,34 +184,46 @@ moveCur dir n (CardButton c) = correct $ case dir of
  width = 4
  correct i = CardButton (i `mod` n)
 
-printGame :: Vty -> Game -> InterfaceState -> IO ()
-printGame vty game s = update vty 
-                 $ make_picture
-                 $ interfaceImage game s
+printGame :: Vty -> Interface -> IO Interface
+printGame vty s = do
+   update vty $ make_picture
+              $ interfaceImage s
+   case iTimer s of
+     Nothing -> return s
+     Just (delay, s') -> do
+       threadDelay delay
+       printGame vty s'
 
-giveHint :: Game -> InterfaceState -> InterfaceState
+giveHint :: Game -> Interface -> Interface
 giveHint game s =
   let (mbHint, g) = hint (iStdGen s) game
   in case mbHint of
     Just a -> let hintmsg = "There is a set using this card."
               in setGen g . setMessage hintmsg . setSelection [a] $ s
-    Nothing -> let dealmsg = "No sets in this tableau, deal more cards." 
+    Nothing -> let dealmsg = "No sets in this tableau, deal more cards."
                in setGen g . setMessage dealmsg $ s
 
 -- | 'checkSet' will extract the chosen set from the tableau and check it
 --   for validity. If a valid set is removed from the tableau the tableau
 --   will be refilled up to 12 cards.
-checkSet :: Card -> Card -> Card -> Game -> InterfaceState
-         -> (Game, InterfaceState)
+checkSet :: Card -> Card -> Card -> Game -> Interface
+         -> (Game, Interface)
 checkSet a b c game s = (game', f_s s)
   where
   (f_s,game') = case considerSet a b c game of
-    Nothing -> (setMessage "Not a set.", game)
-    Just game1 -> (setMessage "Good job." . clearSelection, game1)
+    Nothing -> (delayedUpdate 250000 (setMessage "Not a set.")
+               . setMessage "Not a set!", game)
+    Just game1 -> ( setMessage "Good job!"
+                  . delayedUpdate (seconds 1)
+                  ( setGame game1
+                  . clearSelection
+                  . setMessage "Good job.")
+                  , game1)
 
-checkNoSets :: Game -> InterfaceState -> Maybe (Game, InterfaceState)
+checkNoSets :: Game -> Interface -> Maybe (Game, Interface)
 checkNoSets game s = case extraCards game of
-  Right game' -> Just (game', incDealCounter
+  Right game' -> Just (game', setGame game'
+                            . incDealCounter
                             . setMessage "Dealing more cards."
                             $ s)
   Left 0 -> Nothing
@@ -195,11 +237,11 @@ titleString :: String
 titleString = centerText 72 "The game of Set"
 
 helpString :: String
-helpString = 
+helpString =
     "(D)eal, (H)int, (Q)uit, Arrows move, Return selects, Backspace unselects"
 
-interfaceImage :: Game -> InterfaceState -> Image
-interfaceImage game s =
+interfaceImage :: Interface -> Image
+interfaceImage s =
   boldString titleString
   <->
   plainString helpString
@@ -207,7 +249,7 @@ interfaceImage game s =
   vert_cat (map cardRow rows)
   <->
   plainString "Cards remaining in deck: "
-    <|> boldString  (leftPadText 2 (show (deckSize game)))
+    <|> boldString  (leftPadText 2 (show (iRemaining s)))
     <|> plainString "    ["
     <|> boldString  (rightPadText 38 (iMessage s))
     <|> plainString "]"
@@ -223,7 +265,7 @@ interfaceImage game s =
   where
   plainString = string def_attr
   boldString = string (def_attr `with_style` bold)
-  rows = groups 4 (zipWith testFocus [0..] (tableau game))
+  rows = groups 4 (zipWith testFocus [0..] (iTableau s))
   testFocus i c = (iControl s == CardButton i, isSelected c s, c)
   cardRow = horiz_cat . map cardimage
 
@@ -273,3 +315,7 @@ rightPadText n xs = xs ++ replicate (n - length xs) ' '
 init' :: [a] -> [a]
 init' [] = []
 init' xs = init xs
+
+-- | 'seconds' converts seconds to microseconds for use in 'threadDelay'.
+seconds :: Int -> Int
+seconds x = 1000000 * x
