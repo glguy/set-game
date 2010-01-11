@@ -2,6 +2,7 @@ module Main where
 
 import Control.Concurrent               (threadDelay)
 import Data.List                        (delete)
+import Data.Foldable                    (traverse_)
 import Graphics.Vty as Vty
 import System.Random (newStdGen, StdGen)
 
@@ -21,13 +22,14 @@ main = do
   shutdown vty
 
 run :: Vty -> Game -> Interface -> IO ()
-run _ game _ | emptyGame game = return ()
-run vty game s = do
+run vty game s
+ | emptyGame game = return ()
+ | otherwise = do
   s' <- printGame vty s
 
   cmd <- handleInput vty
   let simple f = Just (game, f s')
-  let res = case cmd of
+  traverse_ (uncurry (run vty)) $ case cmd of
         Deal        -> checkNoSets game s
         DeleteLast  -> simple $ initSelection
                               . clearMessage
@@ -36,9 +38,6 @@ run vty game s = do
                               $ tableau game
         Quit        -> Nothing
         Select      -> Just (select game s')
-  case res of
-    Nothing -> return ()
-    Just (game', s'') -> run vty game' s''
 
 select :: Game -> Interface -> (Game, Interface)
 select game s = case iControl s of
