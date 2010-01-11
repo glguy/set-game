@@ -24,6 +24,9 @@ delete1 x (y:ys)
   | otherwise = fmap (y:) (delete1 x ys)
 delete1 _ [] = Nothing
 
+-- | 'index' returns the element at the given 0-based index and returns
+-- 'Nothing' on failure.
+index :: Int -> [a] -> Maybe a
 index 0 (x:_)		= Just x
 index n (_:xs) | n > 0	= index (n-1) xs
 index _ _		= Nothing
