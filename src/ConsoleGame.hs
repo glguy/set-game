@@ -7,7 +7,7 @@ import System.Random (newStdGen, StdGen)
 
 import Set.Ascii
 import Set.Card (Card, Color(Red,Purple,Green))
-import Set.GameLogic
+import Set.Game
 import Set.Utils hiding (select)
 
 main :: IO ()
@@ -216,7 +216,7 @@ checkSet a b c game s = case considerSet a b c game of
 
   Just game'    -> (game', setMessage "Good job!"
                         . delayedUpdate (seconds 1)
-                        ( setGame game1
+                        ( setGame game'
                         . clearSelection
                         . setMessage "Good job.")
                         $ s)
@@ -298,5 +298,5 @@ cardimage (focused,selected,c)
   base_card_attr = def_attr `with_fore_color` vty_color `with_back_color` black
 
 make_picture :: Image -> Picture
-make_picture img = pic_from_image img
+make_picture img = (pic_for_image img)
  { pic_background = Background ' ' def_attr }

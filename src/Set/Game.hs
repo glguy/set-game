@@ -1,5 +1,5 @@
 {-# LANGUAGE NamedFieldPuns #-}
-module Set.GameLogic (
+module Set.Game (
         -- * Types
           Game
 
