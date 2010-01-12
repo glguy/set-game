@@ -28,7 +28,7 @@ import Data.List (sortBy)
 
 -- | 'tableauSize' is the minimum number of cards that should be on the tableau.
 tableauSize :: Int
-tableauSize = 12 
+tableauSize = 12
 
 -- | 'Game' represents the current state of a Set game including the remaining
 -- shuffled deck and the current tableau.

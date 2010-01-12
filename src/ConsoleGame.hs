@@ -144,14 +144,14 @@ checkSet a b c game s = Just $ case considerSet a b c game of
 -- and deals additional cards to the tableau in that case.
 checkNoSets :: Game -> Interface -> Maybe (Game, Interface)
 checkNoSets game s = case extraCards game of
-  Right game' -> Just (game', setGame game'
-                            . incDealCounter
-                            . setMessage "Dealing more cards."
-                            $ s)
-  Left 0 -> Nothing
-  Left sets -> Just (game, incBadDealCounter
-                         . setMessage msg
-                         $ s)
+  Right game'	-> Just (game', setGame game'
+                              . incDealCounter
+                              . setMessage "Dealing more cards."
+                              $ s)
+  Left 0	-> Just (game , setMessage "Game over, all sets found." s)
+  Left sets	-> Just (game , incBadDealCounter
+                              . setMessage msg
+                              $ s)
     where
        msg = "Oops, " ++ show sets ++ " sets in tableau. Keep looking."
 
@@ -304,11 +304,15 @@ interfaceImage s =
   cardRowImage (map ((,,) False False) (iSelection s))
 
 tableauImage :: Interface -> Image
-tableauImage s = vert_cat
-               $ map cardRowImage
-               $ groups tableauWidth 
-               $ zipWith testFocus [0..] 
-               $ iTableau s
+tableauImage s
+  | null (iTableau s)	= boldString "No more cards!"
+                      <-> plainString " "
+
+  | otherwise		= vert_cat
+                        $ map cardRowImage
+                        $ groups tableauWidth 
+                        $ zipWith testFocus [0..] 
+                        $ iTableau s
   where
   testFocus i c = (iControl s == CardButton i, isSelected c s, c)
 
