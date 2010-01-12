@@ -33,11 +33,9 @@ run vty game s
   let simple f = Just (game, f s')
   traverse_ (uncurry (run vty)) $ case cmd of
         Deal        -> checkNoSets game s'
-        DeleteLast  -> simple $ initSelection
-                              . clearMessage
+        DeleteLast  -> simple $ initSelection . clearMessage
         Hint        -> simple $ giveHint game
-        Move dir    -> simple $ updateControl $ moveCur dir $ length
-                              $ tableau game
+        Move dir    -> simple $ moveFocus dir
         Quit        -> Nothing
         Select      -> select game s'
 
@@ -45,7 +43,7 @@ run vty game s
 --   focused control.
 select :: Game -> Interface -> Maybe (Game, Interface)
 select game s = case iControl s of
- CardButton i -> case index i (tableau game) of
+ CardButton i -> case index i (iTableau s) of
    Just t | isSelected t s      -> Just (game, updateSelection (delete t)
                                              . clearMessage
                                              $ s)
@@ -70,29 +68,35 @@ setGame :: Game -> Interface -> Interface
 setGame game = setTableau (tableau game)
              . setRemaining (deckSize game)
 
-moveCur :: Direction -> Int -> CurrentControl -> CurrentControl
-moveCur dir n (CardButton i) = CardButton i2
+moveFocus :: Direction -> Interface -> Interface
+moveFocus dir s = setControl control s
  where
-  (row,col) = i `divMod` cols
+  control = case iControl s of
+    CardButton i -> moveFocusCardButton dir i (length (iTableau s))
 
-  (row1, col1) = case dir of
-    GoUp        -> (row - 1, col)
-    GoDown      -> (row + 1, col)
-    GoLeft      -> (row, col - 1)
-    GoRight     -> (row, col + 1)
+moveFocusCardButton :: Direction -> Int -> Int -> CurrentControl
+moveFocusCardButton dir i n = CardButton i1
+   where
+    (row,col) = i `divMod` cols
 
-  i2 = case dir of
-    _ | toI (row1, col1) < n
-                -> toI (row1, col1)
-    GoUp        -> toI (-2, col1)
-    GoDown      -> toI (0, col1)
-    GoLeft      -> toI (row1, n-1)
-    GoRight     -> toI (row1, 0)
+    (row1, col1) = case dir of
+      GoUp        -> (row - 1, col)
+      GoDown      -> (row + 1, col)
+      GoLeft      -> (row, col - 1)
+      GoRight     -> (row, col + 1)
 
-  toI (r,c) = r `mod` rows * cols + c `mod` cols
+    i1 = case dir of
+      _ | toI (row1, col1) < n
+                  -> toI (row1, col1)
+      GoUp        -> toI (-2, col1)
+      GoDown      -> toI (0, col1)
+      GoLeft      -> toI (row1, n-1)
+      GoRight     -> toI (row1, 0)
 
-  rows = (n + cols - 1) `div` cols
-  cols = 4
+    toI (r,c) = r `mod` rows * cols + c `mod` cols
+
+    rows = (n + cols - 1) `div` cols
+    cols = tableauWidth
 
 printGame :: Vty -> Interface -> IO Interface
 printGame vty s = do
@@ -107,7 +111,7 @@ printGame vty s = do
 -- | 'giveHint' checks for a hint in the current game and alters the
 --   selection if a hint is found.
 giveHint :: Game -> Interface -> Interface
-giveHint game s = setGen g . f $ s
+giveHint game s = incHintCounter . setGen g . f $ s
   where
   f = case mbHint of
         Just a -> setMessage hintmsg . setSelection [a]
@@ -159,8 +163,9 @@ data Interface = IS
   { iControl :: CurrentControl
   , iSelection :: [Card]
   , iMessage :: String
-  , iDealCounter :: Int
-  , iBadDealCounter :: Int
+  , iDealCounter :: Integer
+  , iBadDealCounter :: Integer
+  , iHintCounter :: Integer
   , iStdGen :: StdGen
   , iTimer :: Maybe (Int, Interface)
   , iTableau :: [Card]
@@ -174,6 +179,7 @@ newInterface g = IS
   , iMessage = ""
   , iDealCounter = 0
   , iBadDealCounter = 0
+  , iHintCounter = 0
   , iStdGen = g
   , iTimer = Nothing
   , iTableau = []
@@ -195,6 +201,9 @@ setTimer delay s' s = s { iTimer = Just (delay, s') }
 delayedUpdate :: Int -> (Interface -> Interface)
               -> Interface -> Interface
 delayedUpdate delay f s = setTimer delay (f s) s
+
+incHintCounter :: Interface -> Interface
+incHintCounter i = i { iHintCounter = iHintCounter i + 1 }
 
 incDealCounter :: Interface -> Interface
 incDealCounter i = i { iDealCounter = iDealCounter i + 1 }
@@ -283,10 +292,12 @@ interfaceImage s =
     <|> boldString  (rightPadText 38 (iMessage s))
     <|> plainString "]"
   <->
-  plainString "Extra deal count: "
+  plainString "Deal count: "
     <|> boldString  (show (iDealCounter s))
     <|> plainString "/"
     <|> boldString  (show (iDealCounter s + iBadDealCounter s))
+    <|> plainString "   Hints used: "
+    <|> boldString  (show (iHintCounter s))
   <->
   plainString "Current Selection"
   <->
@@ -295,7 +306,7 @@ interfaceImage s =
 tableauImage :: Interface -> Image
 tableauImage s = vert_cat
                $ map cardRowImage
-               $ groups 4 
+               $ groups tableauWidth 
                $ zipWith testFocus [0..] 
                $ iTableau s
   where
@@ -341,3 +352,6 @@ plainString = string def_attr
 
 boldString :: String -> Image
 boldString = string (def_attr `with_style` bold)
+
+tableauWidth :: Int
+tableauWidth = 4
