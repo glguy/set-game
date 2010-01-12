@@ -7,8 +7,8 @@ synopsis:	A console interface to the game of Set
 build-type: Simple
 cabal-version: >=1.2
 
-executable ConsoleGame
-  main-is: ConsoleGame.hs
+executable set-game
+  main-is: SetGame.hs
   build-depends:	base == 4.*,
                         editline == 0.2.*,
                         random == 1.0.*,
