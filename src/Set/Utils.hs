@@ -85,14 +85,12 @@ shuffle' n xs g = (x:xs'', g'')
 
 -- | 'centerText' centers the given string in a field of @width characters.
 centerText :: Int -> String -> String
-centerText width xs = replicate ( (width - n) `div` 2 ) ' ' ++ xs
-  where
-  n = length xs
-
+centerText width xs = replicate ((width - length xs) `div` 2 ) ' ' ++ xs
+                   ++ replicate ((width - length xs + 1) `div` 2 ) ' '
 -- | 'centerText' right-aligns the given string in a field of @width characters.
 leftPadText :: Int -> String -> String
-leftPadText n xs = replicate (n - length xs) ' ' ++ xs
+leftPadText width xs = replicate (width - length xs) ' ' ++ xs
 
 -- | 'centerText' left-aligns the given string in a field of @width characters.
 rightPadText :: Int -> String -> String
-rightPadText n xs = xs ++ replicate (n - length xs) ' '
+rightPadText width xs = xs ++ replicate (width - length xs) ' '
