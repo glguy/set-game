@@ -33,7 +33,7 @@ run vty game s
   let simple f = Just (game, f s')
   traverse_ (uncurry (run vty)) $ case cmd of
         Deal        -> checkNoSets game s'
-        DeleteLast  -> simple $ initSelection . clearMessage
+        Delete      -> simple $ clearSelection . clearMessage
         Hint        -> simple $ giveHint game
         Move dir    -> simple $ moveFocus dir
         Quit        -> Nothing
@@ -233,9 +233,6 @@ updateSelection f i = setSelection (f (iSelection i)) i
 appendSelection :: Card -> Interface -> Interface
 appendSelection card = updateSelection (++ [card])
 
-initSelection :: Interface -> Interface
-initSelection = updateSelection init'
-
 clearSelection :: Interface -> Interface
 clearSelection = updateSelection (const [])
 
@@ -249,14 +246,14 @@ setGen g i = i { iStdGen = g }
 -- Input to even mapping ------------------------------------------------------
 -------------------------------------------------------------------------------
 
-data Command = Move Direction | Select | Quit | Deal | DeleteLast | Hint
+data Command = Move Direction | Select | Quit | Deal | Delete | Hint
 data Direction = GoUp | GoDown | GoLeft | GoRight
 
 handleInput :: Vty -> IO Command
 handleInput vty = do
  ev <- next_event vty
  case ev of
-   EvKey KBS [] -> return DeleteLast
+   EvKey KBS [] -> return Delete
    EvKey KUp [] -> return (Move GoUp)
    EvKey KDown [] -> return (Move GoDown)
    EvKey KLeft [] -> return (Move GoLeft)
@@ -276,7 +273,7 @@ titleString = "The game of Set"
 
 helpString :: String
 helpString = "(D)eal, (H)int, (Q)uit, Arrows move, Return selects,\
-             \ Backspace unselects"
+             \ Backspace clears"
 
 interfaceImage :: Interface -> Image
 interfaceImage s =
