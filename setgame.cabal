@@ -1,9 +1,11 @@
 name:		setgame
 version:	1.1
+category:	Game
 license:	BSD3
 license-file:	LICENSE
 maintainer:	emertens@gmail.com
 synopsis:	A console interface to the game of Set
+description:	A console interface to the game of Set
 build-type: Simple
 cabal-version: >=1.2
 

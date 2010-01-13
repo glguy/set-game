@@ -298,10 +298,6 @@ interfaceImage s =
     <|> boldString  (show (iDealCounter s + iBadDealCounter s))
     <|> plainString "   Hints used: "
     <|> boldString  (show (iHintCounter s))
-  <->
-  plainString "Current Selection"
-  <->
-  cardRowImage (map ((,,) False False) (iSelection s))
 
 tableauImage :: Interface -> Image
 tableauImage s
