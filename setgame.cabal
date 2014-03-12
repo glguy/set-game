@@ -15,6 +15,6 @@ executable set-game
                         editline == 0.2.*,
                         random == 1.0.*,
                         terminfo == 0.3.*,
-                        vty == 4.2.*
+                        vty == 4.7.*
   hs-source-dirs: src
   ghc-options: -Wall
