@@ -1,7 +1,7 @@
 module Set.Utils where
 
 import Control.Monad                    (liftM)
-import Data.List			(tails)
+import Data.List                        (tails)
 import System.Random                    (newStdGen, RandomGen, randomR)
 
 -------------------------------------------------------------------------------
@@ -28,9 +28,9 @@ delete1 _ [] = Nothing
 -- | 'index' returns the element at the given 0-based index and returns
 -- 'Nothing' on failure.
 index :: Int -> [a] -> Maybe a
-index 0 (x:_)		= Just x
-index n (_:xs) | n > 0	= index (n-1) xs
-index _ _		= Nothing
+index 0 (x:_)           = Just x
+index n (_:xs) | n > 0  = index (n-1) xs
+index _ _               = Nothing
 
 select :: Int -> [a] -> (a,[a])
 select _ [] = error "select: index too large"
@@ -74,10 +74,10 @@ shuffle' :: RandomGen g =>  Int -> [a] -> g -> ([a], g)
 shuffle' _ [] g = ([], g)
 shuffle' n xs g = (x:xs'', g'')
   where
-  n'		= n - 1
-  (i, g')	= randomR (0,n') g
-  (x, xs')	= select i xs
-  (xs'', g'')	= shuffle' n' xs' g'
+  n'            = n - 1
+  (i, g')       = randomR (0,n') g
+  (x, xs')      = select i xs
+  (xs'', g'')   = shuffle' n' xs' g'
 
 -------------------------------------------------------------------------------
 -- Text manipulation utilities ------------------------------------------------
