@@ -1,4 +1,4 @@
-module Main where
+module SetGame (gameMain) where
 
 import Control.Concurrent               (threadDelay)
 import Data.List                        (delete)
@@ -11,9 +11,9 @@ import Set.Card (Card, Color(Red,Purple,Green))
 import Set.Game
 import Set.Utils hiding (select)
 
-main :: IO ()
-main = do
-  vty <- mkVty
+gameMain :: Vty.Config -> IO ()
+gameMain config = do
+  vty <- mkVty config
   game <- newGame
   g <- newStdGen
   run vty game
@@ -30,14 +30,15 @@ run vty game s
   s' <- printGame vty s
 
   cmd <- handleInput vty
-  let simple f = Just (game, f s')
-  traverse_ (uncurry (run vty)) $ case cmd of
-        Deal        -> checkNoSets game s'
-        Delete      -> simple $ clearSelection . clearMessage
-        Hint        -> simple $ giveHint game
-        Move dir    -> simple $ moveFocus dir
-        Quit        -> Nothing
-        Select      -> select game s'
+  let simple f = run vty game (f s')
+  case cmd of
+    Deal        -> traverse_ (\(g,i) -> run vty g i) (checkNoSets game s')
+    Delete      -> simple $ clearSelection . clearMessage
+    Hint        -> simple $ giveHint game
+    Move dir    -> simple $ moveFocus dir
+    Quit        -> return ()
+    Redraw      -> refresh vty >> run vty game s
+    Select      -> traverse_ (\(g,i) -> run vty g i) (select game s')
 
 -- | 'select' performs an event on the interface based on the currently
 --   focused control.
@@ -100,7 +101,7 @@ moveFocusCardButton dir i n = CardButton i1
 
 printGame :: Vty -> Interface -> IO Interface
 printGame vty s = do
-   update vty $ make_picture
+   update vty $ makePicture
               $ interfaceImage s
    case iTimer s of
      Nothing -> return s
@@ -243,25 +244,26 @@ setGen :: StdGen -> Interface -> Interface
 setGen g i = i { iStdGen = g }
 
 -------------------------------------------------------------------------------
--- Input to even mapping ------------------------------------------------------
+-- Input to event mapping -----------------------------------------------------
 -------------------------------------------------------------------------------
 
-data Command = Move Direction | Select | Quit | Deal | Delete | Hint
+data Command = Move Direction | Select | Quit | Deal | Delete | Hint | Redraw
 data Direction = GoUp | GoDown | GoLeft | GoRight
 
 handleInput :: Vty -> IO Command
 handleInput vty = do
- ev <- next_event vty
+ ev <- nextEvent vty
  case ev of
-   EvKey KBS [] -> return Delete
-   EvKey KUp [] -> return (Move GoUp)
-   EvKey KDown [] -> return (Move GoDown)
-   EvKey KLeft [] -> return (Move GoLeft)
-   EvKey KRight [] -> return (Move GoRight)
-   EvKey KEnter [] -> return Select
-   EvKey (KASCII 'd') [] -> return Deal
-   EvKey (KASCII 'h') [] -> return Hint
-   EvKey (KASCII 'q') [] -> return Quit
+   EvKey KBS         [] -> return Delete
+   EvKey KUp         [] -> return (Move GoUp)
+   EvKey KDown       [] -> return (Move GoDown)
+   EvKey KLeft       [] -> return (Move GoLeft)
+   EvKey KRight      [] -> return (Move GoRight)
+   EvKey KEnter      [] -> return Select
+   EvKey (KChar 'd') [] -> return Deal
+   EvKey (KChar 'h') [] -> return Hint
+   EvKey (KChar 'q') [] -> return Quit
+   EvKey (KChar 'l') [MCtrl] -> return Redraw
    _ -> handleInput vty
 
 -------------------------------------------------------------------------------
@@ -301,7 +303,7 @@ tableauImage s
   | null (iTableau s)	= boldString "No more cards!"
                       <-> plainString " "
 
-  | otherwise		= vert_cat
+  | otherwise		= vertCat
                         $ map cardRowImage
                         $ groups tableauWidth 
                         $ zipWith testFocus [0..] 
@@ -310,45 +312,45 @@ tableauImage s
   testFocus i c = (iControl s == CardButton i, isSelected c s, c)
 
 cardRowImage :: [(Bool, Bool, Card)] -> Image
-cardRowImage = horiz_cat . map cardImage
+cardRowImage = horizCat . map cardImage
 
 -- | 'cardImage' renders a 'Card' based on its current selection and focus
 --   state.
 cardImage :: (Bool, Bool, Card) -> Image
-cardImage (focused,selected,c) = left_side <|> body <|> right_side <-> bottom
+cardImage (focused,selected,c) = leftSide <|> body <|> rightSide <-> bottom
  where
-  body          = vert_cat (map (Vty.string card_attr) xs)
-  left_side     = char_fill fill_attr left_filler 1 (4 :: Int)
-  right_side    = char_fill fill_attr right_filler 1 (4 :: Int)
-  bottom        = char_fill def_attr ' ' 18 (1 :: Int)
+  body          = vertCat (map (Vty.string cardAttr) xs)
+  leftSide     = charFill fillAttr leftFiller 1 (4 :: Int)
+  rightSide    = charFill fillAttr rightFiller 1 (4 :: Int)
+  bottom        = charFill defAttr ' ' 18 (1 :: Int)
 
-  (card_color, xs) = cardLines c
+  (cardColor, xs) = cardLines c
 
-  vty_color = case card_color of
+  vtyColor = case cardColor of
     Red         -> red
     Purple      -> cyan
     Green       -> green
 
-  (fill_attr, left_filler, right_filler)
-    | focused   = (def_attr`with_fore_color`white`with_back_color`yellow,
+  (fillAttr, leftFiller, rightFiller)
+    | focused   = (defAttr`withForeColor`white`withBackColor`yellow,
                      '▶', '◀')
-    | otherwise = (def_attr, ' ', ' ')
+    | otherwise = (defAttr, ' ', ' ')
 
-  card_attr
-    | selected  = base_card_attr `with_style` reverse_video
-    | otherwise = base_card_attr
+  cardAttr
+    | selected  = baseCardAttr `withStyle` reverseVideo
+    | otherwise = baseCardAttr
 
-  base_card_attr = def_attr `with_fore_color` vty_color `with_back_color` black
+  baseCardAttr = defAttr `withForeColor` vtyColor `withBackColor` black
 
-make_picture :: Image -> Picture
-make_picture img = (pic_for_image img)
- { pic_background = Background ' ' def_attr }
+makePicture :: Image -> Picture
+makePicture img = (picForImage img)
+ { picBackground = Background ' ' defAttr }
 
 plainString :: String -> Image
-plainString = string def_attr
+plainString = string defAttr
 
 boldString :: String -> Image
-boldString = string (def_attr `with_style` bold)
+boldString = string (defAttr `withStyle` bold)
 
 tableauWidth :: Int
 tableauWidth = 4
