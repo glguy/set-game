@@ -4,10 +4,10 @@ import Control.Concurrent               (threadDelay)
 import Data.List                        (delete)
 import Data.Foldable                    (traverse_)
 import Graphics.Vty as Vty
-import System.Random (newStdGen, StdGen)
+import System.Random                    (newStdGen, StdGen)
 
-import Set.Ascii
-import Set.Card (Card, Color(Red,Purple,Green))
+import Set.Ascii                        (cardLines)
+import Set.Card                         (Card, Color(Red,Purple,Green))
 import Set.Game
 import Set.Utils hiding (select)
 
@@ -301,7 +301,7 @@ tableauImage s
 
   | otherwise           = vertCat
                         $ map cardRowImage
-                        $ groups tableauWidth 
+                        $ groups tableauWidth
                         $ zipWith testFocus [0..] 
                         $ iTableau s
   where

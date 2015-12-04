@@ -1,1 +1,4 @@
-dist/
+/dist/
+.*.swp
+/stack.yaml
+.stack-work

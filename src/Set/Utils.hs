@@ -1,8 +1,7 @@
 module Set.Utils where
 
-import Control.Monad                    (liftM)
-import Data.List                        (tails)
-import System.Random                    (newStdGen, RandomGen, randomR)
+import Data.List     (tails)
+import System.Random (newStdGen, RandomGen, randomR)
 
 -------------------------------------------------------------------------------
 -- List utilities--------------------------------------------------------------
@@ -32,6 +31,8 @@ index 0 (x:_)           = Just x
 index n (_:xs) | n > 0  = index (n-1) xs
 index _ _               = Nothing
 
+-- | Extract an element from a list by index returning that element
+-- and the remaining list.
 select :: Int -> [a] -> (a,[a])
 select _ [] = error "select: index too large"
 select 0 (x:xs) = (x,xs)
@@ -48,7 +49,7 @@ init' xs = init xs
 -- Other utilities ------------------------------------------------------------
 -------------------------------------------------------------------------------
 
--- | 'chooseThree' returns all combinations of three elements.
+-- | 'chooseTwo' returns all combinations of two elements.
 chooseTwo :: [a] -> [(a,a)]
 chooseTwo xs = [ (a,b) | (a:as) <- tails xs
                        , b      <- as
@@ -64,7 +65,7 @@ seconds x = 1000000 * x
 
 -- | 'shuffleIO' calls shuffle using a generator from 'newStdGen'.
 shuffleIO :: [a] -> IO [a]
-shuffleIO xs = liftM (fst . shuffle xs) newStdGen
+shuffleIO xs = fmap (fst . shuffle xs) newStdGen
 
 -- | 'shuffle' shuffles the elements of a list using the given random generator.
 shuffle :: RandomGen g => [a] -> g -> ([a], g)
