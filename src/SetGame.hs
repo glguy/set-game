@@ -154,7 +154,9 @@ checkNoSets game s = case extraCards game of
                               . setMessage msg
                               $ s)
     where
-       msg = "Oops, " ++ show sets ++ " sets in tableau. Keep looking."
+       howMany | sets == 1 = "1 set"
+               | otherwise = show sets ++ " sets"
+       msg = "Oops, " ++ howMany ++ " in tableau. Keep looking."
 
 -------------------------------------------------------------------------------
 -- Interface manipulation functions -------------------------------------------
