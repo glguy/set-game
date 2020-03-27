@@ -4,11 +4,11 @@ category:	Game
 license:	BSD3
 license-file:	LICENSE
 maintainer:	emertens@gmail.com
-synopsis:	A console interface to the game of Set
+synopsis:	The game of Set
 description:	A console interface to the game of Set
 build-type: Simple
 cabal-version: >=1.8
-tested-with: GHC == 7.10.2, GHC == 7.8.4
+tested-with: GHC==8.6.5, GHC==8.8.3, GHC==8.10.1
 
 source-repository head
   type: git
